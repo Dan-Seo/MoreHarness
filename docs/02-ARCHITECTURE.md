@@ -8,6 +8,7 @@ harness/
   config.py           # .harness/config.yaml 로드·검증
   models.py           # 순수 데이터 타입. 다른 harness 모듈을 import 하지 않는다.
   events.py           # 이벤트 타입과 페이로드 스키마
+  schemas.py          # schemas/ 의 jsonschema 정의를 읽어 검증기를 만든다
   store.py            # journal append + state projection + 재구성
   dag.py              # 의존 그래프, 위상 정렬, ready-set
   git.py              # git 호출 래퍼 (diff, worktree, branch, merge)
@@ -31,7 +32,7 @@ harness/
     runner.py         # 한 task 의 attempt 실행 (sequential)
     scheduler.py      # 병렬 스케줄링, path-conflict 직렬화, 머지 큐
     verify.py         # AC 실행, diff 판정, 경로 스코프, verdict 산출
-    handoff.py        # handoff 정규화·검증, required 게이트, TaskOutput 병합
+    handoff.py        # outbox 아티팩트 정규화, required 게이트, TaskOutput 병합
     review.py         # 리뷰 wave, finding 병합, fixer
 
   context/
@@ -52,7 +53,7 @@ evals/fixtures/<case>/
 ## 의존 방향
 
 ```
-models · errors
+models · errors · schemas
   ↑
 events · store · dag · git · risk · probes · policy
   ↑
@@ -66,7 +67,7 @@ cli
 규칙:
 
 - **순환 의존을 금지한다.** CI에서 import 그래프를 검사한다.
-- `models`와 `errors`는 어떤 harness 모듈도 import하지 않는다. 둘은 같은 최하위 계층이며 서로도 import하지 않는다.
+- `models`·`errors`·`schemas`는 어떤 harness 모듈도 import하지 않는다. 셋은 같은 최하위 계층이며 서로도 import하지 않는다.
 - `adapters/*`는 `models`와 `errors`에만 의존한다. 벤더 SDK를 커널 어디에도 노출하지 않는다.
 - **`cli`가 `eval`을 호출한다.** `eval`은 `cli`를 import하지 않는다. `eval`이 의존하는 하위 API는 `store`(journal 읽기), `exec/runner`(실행), `adapters/registry`(arm별 어댑터 선택), `models`뿐이다.
 - `eval`을 import하는 모듈은 `cli` 하나뿐이다.
@@ -77,7 +78,7 @@ cli
 **커널** — 이것만으로 파이프라인이 끝까지 동작해야 한다.
 
 ```
-models  events  store  dag  git  probes  policy  errors  config
+models  events  store  dag  git  probes  policy  errors  config  schemas
 exec/{workspace, runner, verify, handoff}
 adapters/{base, registry, conformance, mock, generic_cli}
 cli

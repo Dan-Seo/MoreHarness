@@ -27,3 +27,7 @@ class NotARepositoryError(HarnessError):
 
 class AdapterNotFoundError(HarnessError):
     """등록되지 않은 어댑터 타입이다."""
+
+
+class TaskDefinitionError(HarnessError):
+    """task 계약이 잘못됐다. docs/10 의 "task definition" 분류이며 재시도가 무의미하다."""

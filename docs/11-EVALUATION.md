@@ -36,6 +36,25 @@ evals/fixtures/<case>/
   meta.yaml               # 난이도, 도메인, 예상 소요
 ```
 
+`seed/`는 초기 저장소 전체이므로 `.harness/`도 그 안에 있다. fixture가 자기 어댑터와 Command Policy를 선언하는 자리다.
+
+### `grader/expected.yaml` — 회귀 eval의 채점 기준
+
+회귀 eval이 묻는 것은 "오케스트레이션이 규약대로 동작했는가"다. 따라서 채점 대상은 산출된 코드가 아니라 **journal이 만든 최종 state**다.
+
+```yaml
+tasks:
+  T-001: {verdict: verified, state: done}
+  T-002: {verdict: blocked,  state: human_required}
+open_debts: []              # 남아 있어야 할 debt 의 커맨드 목록
+human_required: [T-002]
+```
+
+- 적지 않은 키는 채점하지 않는다. fixture가 주장하는 것만 적는다.
+- `verdict`가 `null`인 것도 주장이다 — 03의 "verdict 없이 state만 갖는" 경우다.
+
+`hidden_ac.yaml`은 최종 트리를 채점하며 능력 eval이 쓴다. 회귀 eval은 `mock`으로 돌므로 트리를 채점하지 않는다.
+
 ### hidden grader의 절대 규칙
 
 > **grader의 AC는 task `acceptance`에도, 컨텍스트 조립에도 절대 들어가지 않는다.**

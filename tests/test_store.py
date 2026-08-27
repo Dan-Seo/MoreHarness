@@ -491,3 +491,23 @@ def test_state_is_recoverable_after_the_process_is_killed(tmp_path):
     assert check_sequence(events) == []
     assert reopened.state == fold(events, RUN_ID)
     assert reopened.state.last_applied_seq == events[-1].seq
+
+
+def test_a_state_only_outcome_is_recorded_with_a_null_verdict(tmp_path):
+    """docs/03 — handoff 누락·머지 충돌·task 정의 결함은 verdict 없이 next_state 만 갖는다."""
+    store = Store(tmp_path / "runs" / "run-1")
+    store.append(
+        EventType.RUN_STARTED,
+        {"manifest": {"task_ids": ["T-001"]}, "profile": "safe", "adapter": "mock", "max_parallel": 1},
+    )
+    store.append(
+        EventType.VERDICT_ASSIGNED,
+        {"verdict": None, "attempt": 1, "reason": "no_op_detected", "next_state": "needs_replan"},
+        task_id="T-001",
+        attempt=1,
+    )
+    task = store.state.tasks["T-001"]
+    assert task.verdict is None
+    assert task.state is State.NEEDS_REPLAN
+    assert task.reason == "no_op_detected"
+    assert store.rebuild().tasks["T-001"].state is State.NEEDS_REPLAN

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import Any, Mapping
 
 
 class Verdict(StrEnum):
@@ -153,3 +153,38 @@ class RunState:
             tasks={k: TaskProjection.from_dict(v) for k, v in (data.get("tasks") or {}).items()},
             open_debts={k: Debt.from_dict(v) for k, v in (data.get("open_debts") or {}).items()},
         )
+
+
+@dataclass(frozen=True)
+class AcceptanceCriterion:
+    """하네스가 직접 실행하는 커맨드. docs/03 — 문자열이 아니라 argv 리스트다."""
+
+    cmd: tuple[str, ...]
+    expect_fail_before: bool = False
+    shell: bool = False
+
+
+@dataclass(frozen=True)
+class Task:
+    """docs/03 의 Task 계약.
+
+    `risk`·`agent`·`profile` 이 `None` 인 것은 **선언되지 않았다**는 뜻이다. config
+    기본값이나 effective_risk 로 해석하는 것은 실행 시점의 일이지 로딩의 일이 아니다.
+    """
+
+    id: str
+    name: str
+    kind: TaskKind
+    satisfies: tuple[str, ...] = ()
+    depends_on: tuple[str, ...] = ()
+    risk: RiskLevel | None = None
+    agent: str | None = None
+    profile: ExecutionProfile | None = None
+    allowed_paths: tuple[str, ...] = ()
+    forbidden_paths: tuple[str, ...] = ()
+    preconditions: tuple[Mapping[str, Any], ...] = ()
+    context: Mapping[str, Any] = field(default_factory=dict)
+    acceptance: tuple[AcceptanceCriterion, ...] = ()
+    required_outputs: tuple[str, ...] = ()
+    optional_outputs: tuple[str, ...] = ()
+    spec_hash: str | None = None

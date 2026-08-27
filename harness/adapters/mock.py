@@ -1,6 +1,7 @@
 """결정론적 어댑터. 회귀 eval 과 CI 의 기본값이며 LLM 도 네트워크도 필요 없다.
 
-시나리오 파일이 exit code, 산출 파일, 지연을 지정한다 (docs/04).
+시나리오가 exit code, 산출 파일, 지연을 지정한다. 어댑터 옵션에 직접 쓰거나
+`scenario` 로 파일 경로를 준다 (docs/04).
 
 ```yaml
 default:                      # tasks 에 없는 task 에 적용된다
@@ -61,6 +62,20 @@ class MockAdapter:
         entry = self._entry(request.task_id)
 
         delay = float(entry.get("delay_s", 0.0))
+        if delay >= request.timeout_s:
+            # docs/04 conformance — timeout_s 를 넘기면 어댑터가 프로세스를 끝내고
+            # runtime_failure 로 표시한다. 실제로 기다리지 않는 것은 결정론을 위해서다.
+            return AgentResult(
+                exit_code=None,
+                stdout="",
+                stderr=f"{request.timeout_s}초 타임아웃",
+                raw_claim_path=None,
+                raw_handoff_path=None,
+                duration_s=float(request.timeout_s),
+                usage=None,
+                transcript_path=None,
+                runtime_failure=RuntimeFailure.TIMEOUT,
+            )
         if delay:
             time.sleep(delay)
 
@@ -105,8 +120,12 @@ class MockAdapter:
 
 
 def build_mock(name: str, options: Mapping[str, Any]) -> MockAdapter:
+    """시나리오는 옵션에 직접 쓰거나 `scenario` 로 파일 경로를 준다 (docs/04).
+
+    fixture 처럼 위치가 실행 시점에 정해지는 경우 절대 경로를 미리 쓸 수 없다. 그래서
+    옵션에 직접 쓰는 형태가 필요하다.
+    """
     scenario_path = options.get("scenario")
-    scenario: Mapping[str, Any] = {}
     if scenario_path:
-        scenario = yaml.safe_load(Path(scenario_path).read_text(encoding="utf-8")) or {}
-    return MockAdapter(name, scenario)
+        return MockAdapter(name, yaml.safe_load(Path(scenario_path).read_text(encoding="utf-8")) or {})
+    return MockAdapter(name, {key: value for key, value in options.items() if key != "scenario"})

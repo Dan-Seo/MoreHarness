@@ -154,11 +154,16 @@ def apply(state: RunState, event: Event) -> RunState:
 
 
 def _apply_verdict(task: TaskProjection, event: Event) -> None:
-    """docs/03 — task 의 최종 verdict 는 가장 큰 attempt 의 verdict_assigned 다."""
+    """docs/03 — task 의 최종 verdict 는 가장 큰 attempt 의 verdict_assigned 다.
+
+    verdict 가 `null` 인 경우가 있다. handoff 누락·머지 충돌·task 정의 결함은 state 만
+    갖는데, `next_state` 를 나르는 이벤트가 이것뿐이라 verdict 자리를 비우고 기록한다.
+    """
     attempt = event.attempt if event.attempt is not None else event.payload.get("attempt")
     if task.verdict_attempt is not None and attempt is not None and attempt < task.verdict_attempt:
         return
-    task.verdict = Verdict(event.payload["verdict"])
+    verdict = event.payload["verdict"]
+    task.verdict = Verdict(verdict) if verdict else None
     task.verdict_attempt = attempt
     task.reason = event.payload.get("reason")
     task.state = State(event.payload["next_state"])

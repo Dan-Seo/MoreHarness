@@ -1,0 +1,7 @@
+tasks:
+  T-001:
+    verdict: verified
+    state: done
+open_debts:
+- git rev-parse --verify no-such-ref
+human_required: []

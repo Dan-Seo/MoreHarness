@@ -1,0 +1,12 @@
+tasks:
+  T-001:
+    verdict: verified
+    state: done
+  T-002:
+    verdict: verified
+    state: done
+  T-003:
+    verdict: verified
+    state: done
+open_debts: []
+human_required: []

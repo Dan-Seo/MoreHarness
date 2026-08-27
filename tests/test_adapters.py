@@ -233,3 +233,9 @@ def test_mock_loads_a_scenario_file_through_the_registry(tmp_path):
     scenario_path.write_text("tasks:\n  T-001:\n    exit_code: 7\n", encoding="utf-8")
     adapter = build(name="default", type_name="mock", options={"scenario": str(scenario_path)})
     assert adapter.execute(make_request(tmp_path)).exit_code == 7
+
+
+def test_mock_accepts_a_scenario_written_directly_in_the_options():
+    """fixture 는 실행 시점에 위치가 정해지므로 절대 경로를 미리 쓸 수 없다 (docs/04)."""
+    adapter = build(name="default", type_name="mock", options={"tasks": {"T-001": {"exit_code": 4}}})
+    assert adapter.execute(make_request(Path(__file__).parent / "..")).exit_code == 4

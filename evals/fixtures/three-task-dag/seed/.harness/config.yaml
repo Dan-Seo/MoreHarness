@@ -1,0 +1,29 @@
+version: 1
+defaults:
+  adapter: mock
+  profile: safe
+  max_parallel: 1
+adapters:
+  mock:
+    type: mock
+    tasks:
+      T-001:
+        files:
+          a.py: '1
+
+            '
+      T-002:
+        files:
+          b.py: '2
+
+            '
+      T-003:
+        files:
+          c.py: '3
+
+            '
+command_policy:
+  default: deny
+  rules:
+  - match: '^git '
+    verdict: allow

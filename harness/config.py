@@ -21,6 +21,12 @@ from harness.models import ExecutionProfile
 CONFIG_VERSION = 1
 HARNESS_DIR = ".harness"
 
+# docs/06 이 소유하는 키의 기본값. 그 문서가 canonical 이다.
+DEFAULT_AC_TIMEOUT_S = 300
+DEFAULT_AGENT_TIMEOUT_S = 1800
+DEFAULT_MAX_ATTEMPTS = 2
+DEFAULT_MAX_HANDOFF_REPAIRS = 1
+
 
 @dataclass(frozen=True)
 class AdapterConfig:
@@ -37,6 +43,12 @@ class Config:
     max_parallel: int
     allow_unsafe: bool
     adapters: Mapping[str, AdapterConfig]
+    ac_timeout_s: int
+    agent_timeout_s: int
+    max_attempts: int
+    max_handoff_repairs: int
+    blocked_signals: tuple[str, ...]
+    command_policy: Mapping[str, Any]  # 형태 검증은 policy 가 한다
     path: Path
 
 
@@ -91,6 +103,16 @@ def load(repo_root: Path | str) -> Config:
         max_parallel=max_parallel,
         allow_unsafe=allow_unsafe,
         adapters=adapters,
+        ac_timeout_s=_bounded_int(data, "ac_timeout_s", DEFAULT_AC_TIMEOUT_S, minimum=1),
+        agent_timeout_s=_bounded_int(
+            data, "agent_timeout_s", DEFAULT_AGENT_TIMEOUT_S, minimum=1
+        ),
+        max_attempts=_bounded_int(data, "max_attempts", DEFAULT_MAX_ATTEMPTS, minimum=1),
+        max_handoff_repairs=_bounded_int(
+            data, "max_handoff_repairs", DEFAULT_MAX_HANDOFF_REPAIRS, minimum=0
+        ),
+        blocked_signals=_string_list(data, "blocked_signals"),
+        command_policy=data.get("command_policy") or {},
         path=path,
     )
 
@@ -109,3 +131,17 @@ def _load_adapters(raw: Any) -> dict[str, AdapterConfig]:
         options = {k: v for k, v in entry.items() if k != "type"}
         adapters[name] = AdapterConfig(name=name, type=type_name, options=options)
     return adapters
+
+
+def _bounded_int(data: Mapping[str, Any], key: str, default: int, minimum: int) -> int:
+    value = data.get(key, default)
+    if not isinstance(value, int) or isinstance(value, bool) or value < minimum:
+        raise ConfigError(f"{key} 은(는) {minimum} 이상의 정수여야 한다: {value!r}")
+    return value
+
+
+def _string_list(data: Mapping[str, Any], key: str) -> tuple[str, ...]:
+    value = data.get(key) or []
+    if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+        raise ConfigError(f"{key} 은(는) 문자열 목록이어야 한다: {value!r}")
+    return tuple(value)

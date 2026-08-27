@@ -1,0 +1,3 @@
+difficulty: trivial
+domain: judgement
+asserts: 무관한 기존 실패는 task 를 rejected 시키지 않고 debt 로 남는다

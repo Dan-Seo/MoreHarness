@@ -1,4 +1,4 @@
-"""M0 의 CLI — init, status, doctor. (docs/00, docs/10, docs/12)"""
+"""CLI — init·status·doctor (M0) 와 run (M1). (docs/00, docs/10, docs/12)"""
 
 import json
 import pkgutil
@@ -11,15 +11,17 @@ from harness.cli import REQUIRED_CONTROL_PLANE, main
 from harness.config import load
 from harness.events import EventType
 from harness.models import RunState
+from harness.policy import CommandPolicy, PolicyVerdict
 from harness.store import Store, fold
 
 RUN_ID = "run-20260827-1432"
 
 
-def documented_config() -> str:
-    doc = (Path(__file__).resolve().parents[1] / "docs" / "03-DATA-MODEL.md").read_text(encoding="utf-8")
-    after_heading = doc.split("### `config.yaml` — canonical", 1)[1]
-    return after_heading.split("```yaml", 1)[1].split("```", 1)[0]
+def yaml_block(document: str, heading: str) -> dict:
+    """문서의 특정 절 아래 첫 yaml 펜스를 계약으로 읽는다."""
+    doc = (Path(__file__).resolve().parents[1] / "docs" / document).read_text(encoding="utf-8")
+    section = doc.split(heading, 1)[1]
+    return yaml.safe_load(section.split("```yaml", 1)[1].split("```", 1)[0])
 
 
 def seed_run(repo, run_id=RUN_ID):
@@ -90,11 +92,35 @@ def test_init_writes_a_config_that_loads(plain_repo):
     assert config.default_adapter in config.adapters
 
 
-def test_init_writes_the_config_documented_in_docs_03(plain_repo):
-    """docs/03 의 `config.yaml — canonical` 이 계약이다. init 은 그것을 그대로 쓴다."""
+def written_config(repo):
+    return yaml.safe_load((repo / ".harness" / "config.yaml").read_text(encoding="utf-8"))
+
+
+def test_init_writes_the_config_skeleton_documented_in_docs_03(plain_repo):
+    """docs/03 의 `config.yaml — canonical` 이 최상위 뼈대의 계약이다."""
     main(["init", "--repo", str(plain_repo)])
-    written = yaml.safe_load((plain_repo / ".harness" / "config.yaml").read_text(encoding="utf-8"))
-    assert written == yaml.safe_load(documented_config())
+    documented = yaml_block("03-DATA-MODEL.md", "### `config.yaml` — canonical")
+    written = written_config(plain_repo)
+    assert {k: written.get(k) for k in documented} == documented
+
+
+def test_init_writes_the_command_policy_documented_in_docs_06(plain_repo):
+    """docs/06 — init 이 이 규칙 목록을 기본 config 에 써 넣는다.
+
+    06 소유 키이므로 03 의 뼈대에는 없고 06 이 canonical 이다.
+    """
+    main(["init", "--repo", str(plain_repo)])
+    documented = yaml_block("06-VERIFICATION-REVIEW.md", "### 설정")
+    assert written_config(plain_repo)["command_policy"] == documented["command_policy"]
+
+
+def test_the_default_config_authorizes_nothing_dangerous(plain_repo):
+    """fail-closed 가 기본이고, 파괴적 커맨드는 deny 다."""
+    main(["init", "--repo", str(plain_repo)])
+    policy = CommandPolicy.from_config(written_config(plain_repo)["command_policy"])
+    assert policy.decide(["rm", "-rf", "/"]).verdict is PolicyVerdict.DENY
+    assert policy.decide(["make", "release"]).verdict is PolicyVerdict.REQUIRE_APPROVAL
+    assert policy.decide(["pytest"]).verdict is PolicyVerdict.ALLOW
 
 
 def test_doctor_passes_on_a_freshly_initialized_repo(plain_repo, capsys):
@@ -277,3 +303,74 @@ def test_unknown_command_fails(repo):
 
 def test_no_command_fails(repo):
     assert main([]) != 0
+
+
+# --------------------------------------------------------------------------- run
+
+
+def write_runnable_task(repo, task_id="T-001", **fields):
+    scenario = repo / "mock-scenario.yaml"
+    scenario.write_text(
+        yaml.safe_dump({"default": {"files": {"made.py": "x\n"}}}), encoding="utf-8"
+    )
+    config = yaml.safe_load((repo / ".harness" / "config.yaml").read_text(encoding="utf-8"))
+    config["defaults"]["profile"] = "safe"
+    config["adapters"]["mock"]["scenario"] = str(scenario)
+    (repo / ".harness" / "config.yaml").write_text(yaml.safe_dump(config), encoding="utf-8")
+
+    directory = repo / "tasks"
+    directory.mkdir(parents=True, exist_ok=True)
+    data = {"id": task_id, "name": "t", "kind": "implementation", **fields}
+    (directory / f"{task_id}.task.yaml").write_text(yaml.safe_dump(data), encoding="utf-8")
+
+
+def test_run_executes_the_task_dag(repo, capsys):
+    write_runnable_task(repo)
+    assert main(["run", "--repo", str(repo), "--run-id", "run-1"]) == 0
+    out = capsys.readouterr().out
+    assert "T-001" in out and "verified" in out
+
+
+def test_run_leaves_a_journal_that_status_can_read(repo, capsys):
+    write_runnable_task(repo)
+    main(["run", "--repo", str(repo), "--run-id", "run-1"])
+    capsys.readouterr()
+
+    assert main(["status", "--repo", str(repo)]) == 0
+    assert "run-1" in capsys.readouterr().out
+
+
+def test_doctor_passes_after_a_run(repo, capsys):
+    """docs/03 — state == fold(journal) 은 run 이 끝난 뒤에도 성립한다."""
+    write_runnable_task(repo)
+    main(["run", "--repo", str(repo), "--run-id", "run-1"])
+    capsys.readouterr()
+
+    assert main(["doctor", "--repo", str(repo)]) == 0
+    assert "[bad]" not in capsys.readouterr().out
+
+
+def test_run_reports_a_nonzero_code_when_something_needs_a_human(repo, capsys):
+    write_runnable_task(repo, preconditions=[{"kind": "file", "path": "absent.txt"}])
+    assert main(["run", "--repo", str(repo), "--run-id", "run-1"]) != 0
+    assert "blocked" in capsys.readouterr().out
+
+
+def test_run_refuses_a_profile_it_cannot_provide(repo, capsys):
+    """M2 가 worktree 격리를 만든다. 그전까지 제공한다고 말하지 않는다."""
+    write_runnable_task(repo)
+    config = yaml.safe_load((repo / ".harness" / "config.yaml").read_text(encoding="utf-8"))
+    config["defaults"]["profile"] = "worktree"
+    (repo / ".harness" / "config.yaml").write_text(yaml.safe_dump(config), encoding="utf-8")
+
+    assert main(["run", "--repo", str(repo)]) != 0
+    assert "worktree" in capsys.readouterr().out
+
+
+def test_run_reports_a_broken_task_definition_instead_of_crashing(repo, capsys):
+    write_runnable_task(repo)
+    (repo / "tasks" / "T-002.task.yaml").write_text(
+        "id: T-002\nname: b\nkind: analysis\ndepends_on: [T-404]\n", encoding="utf-8"
+    )
+    assert main(["run", "--repo", str(repo)]) != 0
+    assert "T-404" in capsys.readouterr().out

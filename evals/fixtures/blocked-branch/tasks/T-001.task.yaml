@@ -1,0 +1,6 @@
+id: T-001
+name: needs-a-file
+kind: implementation
+preconditions:
+- kind: file
+  path: absent.txt

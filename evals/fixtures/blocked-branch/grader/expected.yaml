@@ -1,0 +1,13 @@
+tasks:
+  T-001:
+    verdict: blocked
+    state: human_required
+  T-002:
+    verdict: null
+    state: pending
+  T-003:
+    verdict: verified
+    state: done
+open_debts: []
+human_required:
+- T-001

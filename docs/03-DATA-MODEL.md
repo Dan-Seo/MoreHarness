@@ -223,6 +223,7 @@ verdict 없이 state만 갖는 경우가 셋 있다.
 - `rejected`/`error` → `ready` → 재시도 경로가 존재하므로, task 전체에서 verdict가 한 번뿐이라는 규칙은 성립하지 않는다.
 - **task의 최종 verdict는 가장 큰 `attempt`의 `verdict_assigned`** 로 정의한다.
 - `verified`는 terminal에서만 기록한다. 증거 조건을 통과했다는 이유만으로 즉시 기록하지 않는다. 순서는 06.
+- **verdict 없이 state만 갖는 위 세 경우에도 `verdict_assigned`를 기록한다.** `verdict`가 `null`이고 `next_state`가 채워진다. `next_state`를 나르는 이벤트가 이것뿐이므로, 이벤트를 더하지 않고도 `state == fold(journal)`이 성립한다.
 
 ---
 
@@ -352,4 +353,4 @@ adapters:                     # 최소 하나. type 이 필수이고
 
 - `defaults.adapter`가 `adapters`에 없으면 로드 실패다.
 - `profile: unsafe`는 `allow_unsafe: true` 없이 쓸 수 없다. 나머지 절반인 **CLI의 명시적 플래그**는 05가 canonical이다.
-- **모르는 최상위 키를 거부하지 않는다.** 뒤 마일스톤이 자기 키를 여기 더하며, 그 키의 canonical 정의는 그 기능을 소유한 문서에 있다 — `command_policy`·`ac_timeout_s`·`blocked_signals`·`risk_rules`는 06이다.
+- **모르는 최상위 키를 거부하지 않는다.** 뒤 마일스톤이 자기 키를 여기 더하며, 그 키의 canonical 정의는 그 기능을 소유한 문서에 있다 — `command_policy`·`ac_timeout_s`·`max_attempts`·`max_handoff_repairs`·`blocked_signals`·`risk_rules`는 06이다.

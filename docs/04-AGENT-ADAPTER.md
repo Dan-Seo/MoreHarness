@@ -86,7 +86,7 @@ class AgentAdapter(Protocol):
 mock  →  generic_cli  →  claude_cli / codex_cli
 ```
 
-**`mock`** — 결정론적. 시나리오 파일로 exit code, 산출 파일, 지연을 지정한다. 회귀 eval과 CI의 기본값이며 LLM도 네트워크도 필요 없다.
+**`mock`** — 결정론적. 시나리오로 exit code, 산출 파일, 지연을 지정한다. 시나리오는 어댑터 옵션에 직접 쓰거나 `scenario` 로 파일 경로를 준다. 회귀 eval과 CI의 기본값이며 LLM도 네트워크도 필요 없다.
 
 **`generic_cli`** — 설정만으로 임의 CLI를 구동한다.
 

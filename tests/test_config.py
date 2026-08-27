@@ -172,3 +172,78 @@ def test_config_does_not_import_higher_layers():
     source = open(config_module.__file__, encoding="utf-8").read()
     for forbidden in ("harness.store", "harness.cli", "harness.adapters"):
         assert forbidden not in source
+
+
+# --------------------------------------------------------------------------- 06 소유 키
+
+
+def test_the_keys_owned_by_docs_06_have_documented_defaults(repo):
+    """docs/06 의 "06이 소유하는 config 키" 가 canonical 이다."""
+    cfg = load(repo)
+    assert cfg.ac_timeout_s == 300
+    assert cfg.max_attempts == 2
+    assert cfg.max_handoff_repairs == 1
+    assert cfg.blocked_signals == ()
+    assert cfg.command_policy == {}
+
+
+def test_the_keys_owned_by_docs_06_are_overridable(repo):
+    write_config(
+        repo,
+        """
+        version: 1
+        defaults: {adapter: mock}
+        adapters: {mock: {type: mock}}
+        ac_timeout_s: 30
+        max_attempts: 5
+        max_handoff_repairs: 0
+        blocked_signals: ["connection refused"]
+        command_policy: {default: allow}
+        """,
+    )
+    cfg = load(repo)
+    assert (cfg.ac_timeout_s, cfg.max_attempts, cfg.max_handoff_repairs) == (30, 5, 0)
+    assert cfg.blocked_signals == ("connection refused",)
+    assert cfg.command_policy == {"default": "allow"}
+
+
+def test_max_attempts_must_allow_at_least_one_attempt(repo):
+    write_config(
+        repo,
+        """
+        version: 1
+        defaults: {adapter: mock}
+        adapters: {mock: {type: mock}}
+        max_attempts: 0
+        """,
+    )
+    with pytest.raises(ConfigError):
+        load(repo)
+
+
+def test_blocked_signals_must_be_a_list_of_strings(repo):
+    write_config(
+        repo,
+        """
+        version: 1
+        defaults: {adapter: mock}
+        adapters: {mock: {type: mock}}
+        blocked_signals: "connection refused"
+        """,
+    )
+    with pytest.raises(ConfigError):
+        load(repo)
+
+
+def test_command_policy_shape_is_not_validated_by_config(repo):
+    """형태 검증은 policy 가 한다 (docs/06). config 는 원본을 그대로 전달한다."""
+    write_config(
+        repo,
+        """
+        version: 1
+        defaults: {adapter: mock}
+        adapters: {mock: {type: mock}}
+        command_policy: {default: allow, rules: [{match: "^x", verdict: deny}]}
+        """,
+    )
+    assert load(repo).command_policy["rules"][0]["match"] == "^x"

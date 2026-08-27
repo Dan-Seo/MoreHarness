@@ -1,0 +1,2 @@
+# 능력 eval(M7)의 채점자. 회귀 eval 은 mock 으로 돌므로 트리를 채점하지 않는다.
+criteria: []

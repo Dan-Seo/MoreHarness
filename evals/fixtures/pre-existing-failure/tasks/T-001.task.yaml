@@ -1,0 +1,13 @@
+id: T-001
+name: unrelated-red
+kind: implementation
+acceptance:
+- cmd:
+  - git
+  - status
+  - --porcelain
+- cmd:
+  - git
+  - rev-parse
+  - --verify
+  - no-such-ref

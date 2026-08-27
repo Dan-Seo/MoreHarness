@@ -1,0 +1,3 @@
+difficulty: trivial
+domain: judgement
+asserts: claim 이 깨져 있어도 하네스 소유 증거만으로 verified 가 된다

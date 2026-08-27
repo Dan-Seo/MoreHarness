@@ -1,0 +1,18 @@
+version: 1
+defaults:
+  adapter: mock
+  profile: safe
+  max_parallel: 1
+adapters:
+  mock:
+    type: mock
+    default:
+      files:
+        ok.py: '1
+
+          '
+command_policy:
+  default: deny
+  rules:
+  - match: '^git '
+    verdict: allow

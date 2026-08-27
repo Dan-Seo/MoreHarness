@@ -1,0 +1,3 @@
+difficulty: trivial
+domain: orchestration
+asserts: blocked 는 하위 의존만 막고 다른 가지는 끝까지 진행한다

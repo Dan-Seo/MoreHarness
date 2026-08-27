@@ -1,0 +1,8 @@
+id: T-001
+name: broken-claim
+kind: implementation
+acceptance:
+- cmd:
+  - git
+  - status
+  - --porcelain

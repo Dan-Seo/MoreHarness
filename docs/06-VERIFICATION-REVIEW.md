@@ -41,6 +41,10 @@ command_policy:
 
 매칭 대상은 argv를 공백으로 join한 정규화 문자열이다.
 
+`harness init`이 이 규칙 목록을 기본 config에 써 넣는다. 무엇이 자동 실행 승인되었는지는 파일을 열어 보면 알 수 있어야 하고, 프로젝트는 그것을 검토하고 고친다.
+
+`command_policy` 키가 아예 없으면 규칙이 하나도 없는 것이므로 모든 커맨드가 `default`를 받는다. **fail-closed는 키의 부재에도 그대로 적용된다.**
+
 ### 판정 순서
 
 ```
@@ -109,7 +113,7 @@ argv 리스트를 그대로 `subprocess.run(argv, shell=False)`에 넘긴다. �
 ### 실행 환경
 
 - cwd는 워크스페이스(워크트리)다. baseline과 post가 같은 cwd를 쓴다.
-- 타임아웃은 config의 `ac_timeout_s`. 초과는 `red`로 분류하고 사유를 기록한다.
+- 타임아웃은 config의 `ac_timeout_s`(기본 300). 초과는 `red`로 분류하고 사유를 기록한다.
 - exit code 0 = green, 그 외 = red. AC는 하네스가 실행하므로 여기서는 exit code가 곧 관측치다.
 - 모든 AC 커맨드는 Command Policy를 통과한다.
 
@@ -292,3 +296,28 @@ wave 한도 초과 후에도 blocking 이 남으면 → replan 1회 → state hu
 1. baseline의 검증력 체크 (`ac_not_discriminating`)
 2. `analyze`가 **코드가 아니라 AC 자체를 리뷰**한다 (08)
 3. 11의 `escape_rate`로 이 리스크를 **수치화**한다 — 하네스가 `verified`라고 했는데 hidden grader는 실패로 본 비율
+
+---
+
+## 06이 소유하는 config 키
+
+03의 `config.yaml` canonical은 최상위 키의 뼈대만 정한다. 아래 키의 정의는 이 문서가 갖는다.
+
+```yaml
+ac_timeout_s: 300             # AC 한 개의 타임아웃(초)
+agent_timeout_s: 1800         # agent 프로세스 하나의 타임아웃(초)
+
+max_attempts: 2               # 한 task 가 rejected/error 로 재시도할 수 있는 횟수
+max_handoff_repairs: 1        # repairing 에서 handoff fixer 를 부를 수 있는 횟수
+
+blocked_signals: []           # AC stderr 대조 패턴(정규식) 목록
+
+command_policy:               # 위 "Command Policy" 절의 형태
+  default: require_approval
+  rules: []
+```
+
+- `agent_timeout_s`가 `AgentRequest.timeout_s`의 출처다. 초과는 어댑터가 `runtime_failure=timeout`으로 표시하며, 04가 canonical이다.
+- **`max_attempts`가 03의 verdict → next_state 표에서 말하는 "시도 소진"의 기준이다.** 소진되면 `rejected`의 next_state가 `ready`가 아니라 `needs_replan`이 된다.
+- `max_handoff_repairs`를 소진하면 state `human_required`(reason: `handoff_missing`)다.
+- **`blocked_signals`의 기본이 빈 목록인 것은 의도다.** 패턴을 미리 심으면 프로젝트마다 오탐이 생기고, 오탐의 결과는 잘못된 `blocked`다. 기본 경로는 precondition 재실행이라는 하네스 소유 증거이며, 패턴은 그 저장소가 자기 실패 양상을 알 때 더한다.

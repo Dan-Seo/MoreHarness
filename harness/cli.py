@@ -1,7 +1,7 @@
 """진입점.
 
 docs/02 — `sys.exit` 는 이 파일에만 존재한다. 다른 모듈은 예외를 올리거나 값을 반환한다.
-M0 이 갖는 커맨드는 `init`, `status`, `doctor` 셋이다 (docs/12).
+커맨드는 마일스톤마다 늘어난다 — M0 이 `init`·`status`·`doctor`, M1 이 `run` 이다 (docs/12).
 """
 
 from __future__ import annotations
@@ -13,9 +13,17 @@ from pathlib import Path
 
 from harness.adapters.registry import build
 from harness.config import load
-from harness.errors import AdapterNotFoundError, ConfigError, JournalCorruptionError, NotARepositoryError
+from harness.dag import Dag, load_tasks
+from harness.errors import (
+    AdapterNotFoundError,
+    ConfigError,
+    HarnessError,
+    JournalCorruptionError,
+    NotARepositoryError,
+)
+from harness.exec.runner import run_dag
 from harness.git import is_repo, repo_root
-from harness.models import RunState
+from harness.models import RunState, State
 from harness.store import Journal, Store, check_sequence, fold
 
 HARNESS_DIR = ".harness"
@@ -28,8 +36,8 @@ REQUIRED_CONTROL_PLANE = (
 )
 CONTROL_PLANE_DIRS = ("knowledge", "runs")
 
-DEFAULT_CONFIG = """\
-# .harness/config.yaml — 하네스가 항상 메인 저장소에서 읽는 control-plane 설정.
+# 정규식을 담으므로 raw 문자열이다. 규칙 목록의 canonical 은 docs/06 이다.
+DEFAULT_CONFIG = r"""# .harness/config.yaml — 하네스가 항상 메인 저장소에서 읽는 control-plane 설정.
 # 키의 canonical 정의는 docs/03 의 `config.yaml — canonical` 이다.
 version: 1
 
@@ -43,6 +51,17 @@ allow_unsafe: false
 adapters:
   mock:
     type: mock
+
+# 하네스가 실행하는 모든 커맨드가 이 정책을 통과한다 (docs/06).
+# 무엇이 자동 실행 승인되었는지는 여기 보이는 것이 전부다. 검토하고 고쳐서 쓴다.
+command_policy:
+  default: require_approval          # fail-closed
+  rules:                             # 첫 매치 우선
+    - {match: '^(npm|pnpm|yarn) (test|run (build|lint|typecheck))$', verdict: allow}
+    - {match: '^(pytest|python -m pytest)', verdict: allow}
+    - {match: '^git (status|diff|log)', verdict: allow}
+    - {match: 'rm\s+-rf|git\s+push\s+--force|git\s+reset\s+--hard|^sudo|DROP\s+DATABASE|id_rsa', verdict: deny}
+    - {match: '^(curl|wget|npm install|pip install|terraform apply|kubectl apply)', verdict: require_approval}
 """
 
 DEFAULT_CONSTITUTION = """\
@@ -79,6 +98,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "init":
         return _init(args)
+    if args.command == "run":
+        return _run(args)
     if args.command == "status":
         return _status(args)
     return _doctor(args)
@@ -94,6 +115,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
     init = sub.add_parser("init", help="저장소에 .harness/ 를 만든다")
     init.add_argument("--repo", help="저장소 루트 (기본: 현재 위치의 저장소)")
+
+    run = sub.add_parser("run", help="task DAG 를 실행한다")
+    run.add_argument("--repo", help="저장소 루트 (기본: 현재 위치의 저장소)")
+    run.add_argument("--run-id", help="run 디렉토리 이름 (기본: 시각으로 만든다)")
 
     status = sub.add_parser("status", help="현재 run 상태, open_debts, human_required")
     status.add_argument("--repo", help="저장소 루트 (기본: 현재 위치의 저장소)")
@@ -150,6 +175,28 @@ def _init(args: argparse.Namespace) -> int:
 
     print(f"{HARNESS_DIR}/ 준비됨 — harness doctor 로 확인한다")
     return 0
+
+
+# --------------------------------------------------------------------------- run
+
+
+def _run(args: argparse.Namespace) -> int:
+    """DAG 를 실행한다. 재개(`--resume`)는 M2 가 만든다.
+
+    일부가 막혀도 run 자체는 정상 종료한다 (docs/10). 종료 코드는 사람이 볼 것이
+    남았는지를 알린다 — 전부 done 이면 0 이다.
+    """
+    repo = _resolve_repo(args)
+    try:
+        config = load(repo)
+        dag = Dag(load_tasks(repo))
+        store = run_dag(repo, config, dag, run_id=args.run_id)
+    except HarnessError as exc:
+        print(f"실행할 수 없다: {exc}")
+        return 1
+
+    _print_state(store.state)
+    return 0 if all(t.state is State.DONE for t in store.state.tasks.values()) else 1
 
 
 # --------------------------------------------------------------------------- status

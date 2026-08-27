@@ -25,7 +25,7 @@
 
 **만드는 것**
 
-`dag`, `exec/runner`(sequential, `max_parallel=1`), outbox 규약(claim + handoff), `probes`, **`policy`(Command Policy)**, `exec/verify`(baseline/post AC + `kind`별 diff 기대 + 차등 판정 + debt), **`exec/handoff`**(required/optional 게이트 + `repairing`), blocked/error 분류, exit code 규칙, `adapters/generic_cli`, `adapters/conformance`, 회귀 eval 러너.
+`dag`, `exec/runner`(sequential, `max_parallel=1`), outbox 규약(claim + handoff), `probes`, **`policy`(Command Policy)**, `exec/verify`(baseline/post AC + `kind`별 diff 기대 + 차등 판정 + debt), **`exec/handoff`**(required/optional 게이트 + `repairing`), blocked/error 분류, exit code 규칙, `adapters/generic_cli`, `adapters/conformance`, `cli`의 `run`, 회귀 eval 러너.
 
 **완료 기준**
 

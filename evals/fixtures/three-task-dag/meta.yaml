@@ -1,0 +1,3 @@
+difficulty: trivial
+domain: orchestration
+asserts: 의존 순서대로 3-task DAG 를 완주한다
