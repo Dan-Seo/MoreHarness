@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "harness.handoff/v1",
+  "title": "Handoff artifact",
+  "description": "다음 task 를 위한 구조화 데이터. claim 과 별개 파일이다 (docs/01, docs/03). 어떤 필드가 required 인지는 task 계약의 outputs 가 정하므로 여기서 미리 고정하지 않는다.",
+  "type": "object",
+  "required": ["schema", "task_id"],
+  "properties": {
+    "schema": {"const": "harness.handoff/v1"},
+    "task_id": {"type": "string", "pattern": "^T-[0-9]{3,}$"}
+  },
+  "additionalProperties": true
+}

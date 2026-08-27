@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "harness.spec/v1",
+  "title": "Spec",
+  "description": "docs/03 의 Spec. R-### 는 스펙 안에서 유일하고 재사용되지 않는다.",
+  "type": "object",
+  "required": ["slug", "intent", "requirements"],
+  "properties": {
+    "slug": {"type": "string", "minLength": 1},
+    "intent": {"type": "string", "minLength": 1},
+    "requirements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "statement"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^R-[0-9]{3,}$"},
+          "statement": {"type": "string", "minLength": 1},
+          "rationale": {"type": "string"},
+          "acceptance_hint": {"type": "string"}
+        }
+      }
+    },
+    "open_questions": {"type": "array", "items": {"type": "string"}}
+  }
+}

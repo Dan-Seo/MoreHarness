@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "harness.event/v1",
+  "title": "Journal event",
+  "description": "docs/03 의 이벤트 레코드 공통 형태. type 열거는 그 문서의 이벤트 목록과 일치한다. 타입별 payload 요구 키는 harness/events.py 의 REQUIRED_PAYLOAD_KEYS 가 강제한다.",
+  "type": "object",
+  "required": ["id", "seq", "ts", "type", "run_id", "task_id", "attempt", "payload"],
+  "properties": {
+    "id": {"type": "string", "pattern": "^.+-[0-9]{6,}$"},
+    "seq": {"type": "integer", "minimum": 1},
+    "ts": {"type": "string", "minLength": 1},
+    "type": {
+      "enum": [
+        "run_started",
+        "precondition_checked",
+        "command_policy_decision",
+        "task_dispatched",
+        "agent_started",
+        "agent_finished",
+        "agent_exit_nonzero",
+        "claim_received",
+        "claim_rejected",
+        "claim_uncorroborated",
+        "handoff_received",
+        "handoff_rejected",
+        "handoff_missing",
+        "ac_baseline_executed",
+        "ac_post_executed",
+        "debt_opened",
+        "debt_closed",
+        "path_violation",
+        "risk_escalated",
+        "review_finding",
+        "fixer_dispatched",
+        "verdict_assigned",
+        "budget_checkpoint",
+        "run_finished"
+      ]
+    },
+    "run_id": {"type": "string", "minLength": 1},
+    "task_id": {"type": ["string", "null"], "pattern": "^T-[0-9]{3,}$"},
+    "attempt": {"type": ["integer", "null"], "minimum": 1},
+    "payload": {"type": "object"}
+  }
+}

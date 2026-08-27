@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "harness-framework"
+version = "0.0.0"
+description = "Agents propose. Harness verifies. Evidence decides."
+requires-python = ">=3.11"
+dependencies = ["PyYAML>=6.0", "jsonschema>=4.20"]
+
+[project.scripts]
+harness = "harness.cli:run_cli"
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.setuptools]
+packages = ["harness", "harness.adapters"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

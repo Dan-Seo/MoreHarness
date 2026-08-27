@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "harness.claim/v1",
+  "title": "Claim envelope",
+  "description": "agent 의 자기 보고. optional 이며 힌트다. 어떤 verdict 도 claim 만으로 결정되지 않는다 (docs/01, docs/03).",
+  "type": "object",
+  "required": ["schema", "task_id"],
+  "properties": {
+    "schema": {"const": "harness.claim/v1"},
+    "task_id": {"type": "string", "pattern": "^T-[0-9]{3,}$"},
+    "outcome_claim": {"enum": ["implemented", "blocked", "infeasible"]},
+    "commands_run": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["cmd"],
+        "properties": {
+          "cmd": {"type": "string"},
+          "exit_code": {"type": "integer"}
+        }
+      }
+    },
+    "blocked_hint": {
+      "type": "string",
+      "description": "결론이 아니라 하네스가 probe 로 확인해 볼 가설이다."
+    }
+  }
+}

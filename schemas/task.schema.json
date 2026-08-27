@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "harness.task/v1",
+  "title": "Task 계약",
+  "description": "docs/03 의 Task 계약. cmd 는 문자열이 아니라 argv 리스트다 — 기본 실행이 셸을 거치지 않기 때문이다.",
+  "type": "object",
+  "required": ["id", "name", "kind"],
+  "properties": {
+    "id": {"type": "string", "pattern": "^T-[0-9]{3,}$"},
+    "name": {"type": "string", "minLength": 1},
+    "kind": {"enum": ["implementation", "analysis", "readonly"]},
+    "satisfies": {"type": "array", "items": {"type": "string", "pattern": "^R-[0-9]{3,}$"}},
+    "depends_on": {"type": "array", "items": {"type": "string", "pattern": "^T-[0-9]{3,}$"}},
+    "risk": {"enum": ["trivial", "low", "medium", "high", "critical"]},
+    "agent": {"type": "string"},
+    "profile": {"enum": ["safe", "worktree", "container", "unsafe"]},
+    "allowed_paths": {"type": "array", "items": {"type": "string"}},
+    "forbidden_paths": {"type": "array", "items": {"type": "string"}},
+    "preconditions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind"],
+        "properties": {
+          "kind": {"enum": ["env_var", "command", "file"]},
+          "name": {"type": "string"},
+          "path": {"type": "string"},
+          "cmd": {"$ref": "#/$defs/argv"}
+        }
+      }
+    },
+    "context": {
+      "type": "object",
+      "properties": {
+        "docs": {"type": "array", "items": {"type": "string"}},
+        "files": {"type": "array", "items": {"type": "string"}},
+        "symbols": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "acceptance": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["cmd"],
+        "properties": {
+          "cmd": {"$ref": "#/$defs/argv"},
+          "expect_fail_before": {"type": "boolean"},
+          "shell": {"type": "boolean"}
+        }
+      }
+    },
+    "outputs": {
+      "type": "object",
+      "properties": {
+        "required": {"type": "array", "items": {"type": "string"}},
+        "optional": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "spec_hash": {"type": "string"}
+  },
+  "$defs": {
+    "argv": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string"}
+    }
+  }
+}
