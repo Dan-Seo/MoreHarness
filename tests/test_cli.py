@@ -1,16 +1,25 @@
-"""M0 의 CLI — status 와 doctor. (docs/00, docs/10)"""
+"""M0 의 CLI — init, status, doctor. (docs/00, docs/10, docs/12)"""
 
 import json
 import pkgutil
 from pathlib import Path
 
+import yaml
+
 import harness
-from harness.cli import main
+from harness.cli import REQUIRED_CONTROL_PLANE, main
+from harness.config import load
 from harness.events import EventType
 from harness.models import RunState
 from harness.store import Store, fold
 
 RUN_ID = "run-20260827-1432"
+
+
+def documented_config() -> str:
+    doc = (Path(__file__).resolve().parents[1] / "docs" / "03-DATA-MODEL.md").read_text(encoding="utf-8")
+    after_heading = doc.split("### `config.yaml` — canonical", 1)[1]
+    return after_heading.split("```yaml", 1)[1].split("```", 1)[0]
 
 
 def seed_run(repo, run_id=RUN_ID):
@@ -63,6 +72,63 @@ def test_sys_exit_lives_only_in_cli():
 
 def test_main_returns_an_exit_code_instead_of_exiting(repo):
     assert main(["status", "--repo", str(repo)]) == 0
+
+
+# --------------------------------------------------------------------------- init
+
+
+def test_init_creates_the_control_plane(plain_repo):
+    """docs/03 의 파일 배치 — .harness/ 의 control-plane 항목을 만든다."""
+    assert main(["init", "--repo", str(plain_repo)]) == 0
+    for name in REQUIRED_CONTROL_PLANE:
+        assert (plain_repo / ".harness" / name).exists(), name
+
+
+def test_init_writes_a_config_that_loads(plain_repo):
+    main(["init", "--repo", str(plain_repo)])
+    config = load(plain_repo)
+    assert config.default_adapter in config.adapters
+
+
+def test_init_writes_the_config_documented_in_docs_03(plain_repo):
+    """docs/03 의 `config.yaml — canonical` 이 계약이다. init 은 그것을 그대로 쓴다."""
+    main(["init", "--repo", str(plain_repo)])
+    written = yaml.safe_load((plain_repo / ".harness" / "config.yaml").read_text(encoding="utf-8"))
+    assert written == yaml.safe_load(documented_config())
+
+
+def test_doctor_passes_on_a_freshly_initialized_repo(plain_repo, capsys):
+    """M0 완료 기준 (docs/12) — init 이 만든 저장소에서 doctor 가 지적 없이 통과한다."""
+    main(["init", "--repo", str(plain_repo)])
+    capsys.readouterr()
+    assert main(["doctor", "--repo", str(plain_repo)]) == 0
+    assert "[bad]" not in capsys.readouterr().out
+
+
+def test_init_does_not_overwrite_existing_files(plain_repo):
+    main(["init", "--repo", str(plain_repo)])
+    constitution = plain_repo / ".harness" / "constitution.md"
+    constitution.write_text("# 우리 프로젝트 규칙\n", encoding="utf-8")
+
+    assert main(["init", "--repo", str(plain_repo)]) == 0
+    assert constitution.read_text(encoding="utf-8") == "# 우리 프로젝트 규칙\n"
+
+
+def test_init_restores_a_missing_directory(plain_repo):
+    """runs/ 는 gitignore 대상이라 clone 뒤 사라진다. init 이 복구 경로다."""
+    main(["init", "--repo", str(plain_repo)])
+    (plain_repo / ".harness" / "runs").rmdir()
+
+    assert main(["init", "--repo", str(plain_repo)]) == 0
+    assert (plain_repo / ".harness" / "runs").is_dir()
+
+
+def test_init_outside_a_git_repository_fails(tmp_path):
+    """docs/00 — init 은 저장소에 .harness/ 를 만든다. 저장소가 없으면 만들 곳이 없다."""
+    outside = tmp_path / "not-a-repo"
+    outside.mkdir()
+    assert main(["init", "--repo", str(outside)]) != 0
+    assert not (outside / ".harness").exists()
 
 
 # --------------------------------------------------------------------------- status

@@ -10,12 +10,13 @@
 
 **만드는 것**
 
-`models`, `events`, `schemas/`, `config`, `store`(journal append + state projection + 재구성), `git` 래퍼, `adapters/{base, registry, mock}`, `cli`의 `status`·`doctor`.
+`models`, `events`, `schemas/`, `config`, `store`(journal append + state projection + 재구성), `git` 래퍼, `adapters/{base, registry, mock}`, `cli`의 `init`·`status`·`doctor`.
 
 **완료 기준**
 
 - `state == fold(journal)` 재구성 테스트 통과
 - 임의 지점에서 프로세스를 죽인 뒤 journal로 상태가 복원됨
+- `harness init` 이 만든 저장소에서 `doctor` 가 아무 지적 없이 통과한다
 - **LLM도 네트워크도 없이 동작한다**
 
 ---
@@ -142,6 +143,7 @@
 - `seq` 부여 규칙과 이벤트 `id` 형식은? → 03
 - `state == fold(journal)` 재구성 절차와 크래시 복구 순서는? → 03, 10
 - `mock` 어댑터가 만족해야 할 conformance 항목 전체는? → 04
+- `init` 이 만들어야 할 control-plane 항목은? → 03 의 파일 배치
 
 **M1 착수 전**
 - AC baseline/post의 cwd·타임아웃·exit code 해석과 green/red 분류 규칙은? → 06

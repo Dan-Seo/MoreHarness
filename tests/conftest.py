@@ -35,6 +35,20 @@ def _path() -> str:
 
 
 @pytest.fixture
+def plain_repo(tmp_path: Path) -> Path:
+    """`.harness/` 가 아직 없는 git 저장소 — `harness init` 의 입력."""
+    root = tmp_path / "plain-repo"
+    root.mkdir()
+    git(root, "init", "-q", "-b", "main")
+    git(root, "config", "user.email", "t@example.com")
+    git(root, "config", "user.name", "t")
+    (root / "README.md").write_text("seed\n", encoding="utf-8")
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "seed")
+    return root
+
+
+@pytest.fixture
 def repo(tmp_path: Path) -> Path:
     """`.harness/` 를 갖춘 git 저장소."""
     root = tmp_path / "repo"

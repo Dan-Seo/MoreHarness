@@ -1,7 +1,7 @@
 """진입점.
 
 docs/02 — `sys.exit` 는 이 파일에만 존재한다. 다른 모듈은 예외를 올리거나 값을 반환한다.
-M0 이 갖는 커맨드는 `status` 와 `doctor` 둘이다 (docs/12).
+M0 이 갖는 커맨드는 `init`, `status`, `doctor` 셋이다 (docs/12).
 """
 
 from __future__ import annotations
@@ -26,6 +26,48 @@ REQUIRED_CONTROL_PLANE = (
     "knowledge",
     "runs",
 )
+CONTROL_PLANE_DIRS = ("knowledge", "runs")
+
+DEFAULT_CONFIG = """\
+# .harness/config.yaml — 하네스가 항상 메인 저장소에서 읽는 control-plane 설정.
+# 키의 canonical 정의는 docs/03 의 `config.yaml — canonical` 이다.
+version: 1
+
+defaults:
+  adapter: mock
+  profile: worktree
+  max_parallel: 1
+
+allow_unsafe: false
+
+adapters:
+  mock:
+    type: mock
+"""
+
+DEFAULT_CONSTITUTION = """\
+# Constitution
+
+이 프로젝트가 절대 어기지 않는 규칙 (docs/01).
+
+control-plane 문서이므로 항상 trusted 로 취급되고, 모든 task 프롬프트에 포함되며
+예산 때문에 잘리지 않는다. 그러니 짧게 유지한다.
+
+## 규칙
+
+- (프로젝트 규칙을 여기에 적는다)
+"""
+
+DEFAULT_APPROVED_COMMANDS = """\
+# .harness/approved_commands.yaml — require_approval 커맨드의 승인 기록 (docs/06).
+approvals: []
+"""
+
+CONTROL_PLANE_FILES = {
+    "config.yaml": DEFAULT_CONFIG,
+    "constitution.md": DEFAULT_CONSTITUTION,
+    "approved_commands.yaml": DEFAULT_APPROVED_COMMANDS,
+}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -35,6 +77,8 @@ def main(argv: list[str] | None = None) -> int:
     except SystemExit as exc:  # argparse 의 종료를 종료 코드로 바꾼다
         return int(exc.code or 2)
 
+    if args.command == "init":
+        return _init(args)
     if args.command == "status":
         return _status(args)
     return _doctor(args)
@@ -47,6 +91,9 @@ def run_cli() -> None:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="harness", description="Agents propose. Harness verifies.")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    init = sub.add_parser("init", help="저장소에 .harness/ 를 만든다")
+    init.add_argument("--repo", help="저장소 루트 (기본: 현재 위치의 저장소)")
 
     status = sub.add_parser("status", help="현재 run 상태, open_debts, human_required")
     status.add_argument("--repo", help="저장소 루트 (기본: 현재 위치의 저장소)")
@@ -71,6 +118,38 @@ def _run_ids(repo: Path) -> list[str]:
     if not runs_dir.is_dir():
         return []
     return sorted(entry.name for entry in runs_dir.iterdir() if entry.is_dir())
+
+
+# --------------------------------------------------------------------------- init
+
+
+def _init(args: argparse.Namespace) -> int:
+    """docs/03 의 파일 배치대로 control-plane 을 만든다.
+
+    이미 있는 것은 건드리지 않는다. `runs/` 는 저장소에 커밋되지 않으므로 clone 뒤
+    다시 만들어야 하고, 그래서 이 커맨드는 몇 번을 실행해도 안전해야 한다.
+    """
+    repo = _resolve_repo(args)
+    if not is_repo(repo):
+        print(f"{repo} 은(는) git 저장소가 아니다 — .harness/ 를 둘 곳이 없다")
+        return 1
+
+    harness_dir = repo / HARNESS_DIR
+    for name in CONTROL_PLANE_DIRS:
+        path = harness_dir / name
+        print(f"{'exists ' if path.is_dir() else 'created'}  {HARNESS_DIR}/{name}/")
+        path.mkdir(parents=True, exist_ok=True)
+
+    for name, content in CONTROL_PLANE_FILES.items():
+        path = harness_dir / name
+        if path.exists():
+            print(f"exists   {HARNESS_DIR}/{name}")
+            continue
+        path.write_text(content, encoding="utf-8")
+        print(f"created  {HARNESS_DIR}/{name}")
+
+    print(f"{HARNESS_DIR}/ 준비됨 — harness doctor 로 확인한다")
+    return 0
 
 
 # --------------------------------------------------------------------------- status
@@ -176,11 +255,11 @@ def _check_repository(report: _Report, repo: Path) -> None:
 def _check_control_plane(report: _Report, repo: Path):
     harness_dir = repo / HARNESS_DIR
     if not harness_dir.is_dir():
-        report.bad(".harness/ 구조", f"{harness_dir} 가 없다")
+        report.bad(".harness/ 구조", f"{harness_dir} 가 없다 — harness init 으로 만든다")
     else:
         missing = [name for name in REQUIRED_CONTROL_PLANE if not (harness_dir / name).exists()]
         if missing:
-            report.bad(".harness/ 구조", "없음: " + ", ".join(missing))
+            report.bad(".harness/ 구조", "없음: " + ", ".join(missing) + " — harness init 으로 만든다")
         else:
             report.ok(".harness/ 구조", f"필수 항목 {len(REQUIRED_CONTROL_PLANE)}개 존재")
 

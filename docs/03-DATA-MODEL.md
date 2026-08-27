@@ -330,3 +330,26 @@ state.json      fold(journal) 의 스냅샷              <- 파생 캐시
 하네스는 `constitution.md`와 `config.yaml`을 **항상 메인 저장소에서 읽고, 워크트리에서는 절대 읽지 않는다.** 워크트리의 사본은 agent가 수정할 수 있는 저장소 콘텐츠이기 때문이다.
 
 `.harness/**`는 전역 `forbidden_paths`에 항상 포함된다.
+
+### `config.yaml` — canonical
+
+control-plane 설정이다. `harness init`이 이 형태의 기본 파일을 만든다.
+
+```yaml
+version: 1                    # 1 만 지원한다. 다르면 로드 실패다.
+
+defaults:
+  adapter: mock               # adapters 에 선언된 이름이어야 한다
+  profile: worktree           # safe | worktree | container | unsafe
+  max_parallel: 1             # 1 이상의 정수. 병렬은 M3 부터다.
+
+allow_unsafe: false           # unsafe 프로파일 허용의 config 쪽 절반
+
+adapters:                     # 최소 하나. type 이 필수이고
+  mock:                       # 나머지 키는 그 어댑터의 옵션이다 — 04 참조
+    type: mock
+```
+
+- `defaults.adapter`가 `adapters`에 없으면 로드 실패다.
+- `profile: unsafe`는 `allow_unsafe: true` 없이 쓸 수 없다. 나머지 절반인 **CLI의 명시적 플래그**는 05가 canonical이다.
+- **모르는 최상위 키를 거부하지 않는다.** 뒤 마일스톤이 자기 키를 여기 더하며, 그 키의 canonical 정의는 그 기능을 소유한 문서에 있다 — `command_policy`·`ac_timeout_s`·`blocked_signals`·`risk_rules`는 06이다.
