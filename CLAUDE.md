@@ -6,14 +6,14 @@
 
 ## 현재 상태
 
-설계 문서 13개가 확정되어 있고 **코드는 아직 없다.** M0부터 착수한다.
-착수 전 `docs/12-ROADMAP.md`의 "구현 세션을 위한 리허설 체크리스트"를 확인할 것. 거기 질문의 답이 문서에 없다면 그것은 설계의 빈틈이지 구현자가 임의로 정할 일이 아니다.
+설계 문서 13개가 확정되어 있고 **M0(커널 계약)까지 구현되어 있다. 다음은 M1(실행과 판정)이다.**
+마일스톤에 착수하기 전 `docs/12-ROADMAP.md`의 "구현 세션을 위한 리허설 체크리스트"를 확인할 것. 거기 질문의 답이 문서에 없다면 그것은 설계의 빈틈이지 구현자가 임의로 정할 일이 아니다.
 
 ## 기술 스택
 
 - Python 3.11+
 - **런타임 의존성은 stdlib + `PyYAML` + `jsonschema` 뿐이다.** 추가하려면 먼저 정당화할 것.
-- 테스트는 pytest (M0에서 도입)
+- 테스트는 pytest
 - 벤더 SDK를 커널에 넣지 않는다. agent CLI는 서브프로세스로만 호출한다.
 
 ## 설계 문서가 계약이다
@@ -60,9 +60,11 @@
 
 ## 명령어
 
-M0에서 만든다. 그 전까지 이 저장소에 실행 가능한 명령이 없다.
+```
+pytest                    # 테스트
+python -m harness init    # 저장소에 .harness/ 생성 (멱등)
+python -m harness status  # 현재 run 상태, open_debts, human_required
+python -m harness doctor  # 일관성 검사 및 복구
+```
 
-```
-pytest                 # 테스트
-python -m harness ...   # CLI (M0: status, doctor)
-```
+나머지 커맨드(`spec`·`plan`·`tasks`·`analyze`·`run`·`converge`·`ship`·`learn`·`eval`)는 뒤 마일스톤에서 만든다.
