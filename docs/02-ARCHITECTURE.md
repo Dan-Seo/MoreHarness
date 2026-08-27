@@ -1,0 +1,117 @@
+# 02 · 아키텍처
+
+## 모듈 배치
+
+```
+harness/
+  cli.py              # 진입점. sys.exit 는 오직 여기서만 호출한다.
+  config.py           # .harness/config.yaml 로드·검증
+  models.py           # 순수 데이터 타입. 다른 harness 모듈을 import 하지 않는다.
+  events.py           # 이벤트 타입과 페이로드 스키마
+  store.py            # journal append + state projection + 재구성
+  dag.py              # 의존 그래프, 위상 정렬, ready-set
+  git.py              # git 호출 래퍼 (diff, worktree, branch, merge)
+  risk.py             # effective_risk 계산
+  probes.py           # precondition 검사, environment verifier
+  policy.py           # Command Policy — allow / deny / require_approval
+  errors.py           # 예외 타입. 분류는 10 의 표를 따른다.
+  learn.py            # knowledge card 승격/폐기
+
+  adapters/
+    base.py           # AgentAdapter 프로토콜, AgentRequest/AgentResult
+    registry.py       # 이름 → 어댑터 해석
+    conformance.py    # 모든 어댑터가 통과해야 하는 테스트 스위트
+    mock.py           # 결정론적. 회귀 eval 과 CI 의 기본값
+    generic_cli.py    # 설정만으로 임의 CLI 구동
+    claude_cli.py     # 선택적 능력 추가
+    codex_cli.py      # 선택적 능력 추가
+
+  exec/
+    workspace.py      # 워크스페이스·outbox 생성과 정리
+    runner.py         # 한 task 의 attempt 실행 (sequential)
+    scheduler.py      # 병렬 스케줄링, path-conflict 직렬화, 머지 큐
+    verify.py         # AC 실행, diff 판정, 경로 스코프, verdict 산출
+    handoff.py        # handoff 정규화·검증, required 게이트, TaskOutput 병합
+    review.py         # 리뷰 wave, finding 병합, fixer
+
+  context/
+    builder.py        # 계층 조립, provenance 표시
+    repomap.py        # 저장소 구조 요약
+    slicing.py        # 문서 앵커·심볼 단위 절취
+    budget.py         # 토큰 예산 배분과 탈락
+
+  eval/               # 커널 밖
+    fixtures.py  arms.py  metrics.py  report.py
+
+schemas/              # jsonschema 정의 (claim, handoff, task, spec, event)
+templates/            # spec / plan / task 템플릿
+prompts/              # 프롬프트 템플릿 (구획 경계 규약 포함)
+evals/fixtures/<case>/
+```
+
+## 의존 방향
+
+```
+models
+  ↑
+events · store · dag · git · risk · probes · policy · errors
+  ↑
+exec/* · context/*
+  ↑
+eval/*
+  ↑
+cli
+```
+
+규칙:
+
+- **순환 의존을 금지한다.** CI에서 import 그래프를 검사한다.
+- `models`는 어떤 harness 모듈도 import하지 않는다.
+- `adapters/*`는 `models`에만 의존한다. 벤더 SDK를 커널 어디에도 노출하지 않는다.
+- **`cli`가 `eval`을 호출한다.** `eval`은 `cli`를 import하지 않는다. `eval`이 의존하는 하위 API는 `store`(journal 읽기), `exec/runner`(실행), `adapters/registry`(arm별 어댑터 선택), `models`뿐이다.
+- `eval`을 import하는 모듈은 `cli` 하나뿐이다.
+- `sys.exit`는 `cli.py`에만 존재한다. 다른 모듈은 예외를 올리거나 값을 반환한다. 그래야 라이브러리로 쓰이고 테스트된다.
+
+## 커널과 옵션
+
+**커널** — 이것만으로 파이프라인이 끝까지 동작해야 한다.
+
+```
+models  events  store  dag  git  probes  policy  errors  config
+exec/{workspace, runner, verify, handoff}
+adapters/{base, registry, conformance, mock, generic_cli}
+cli
+```
+
+**옵션** — 제거해도 커널이 동작한다.
+
+```
+exec/scheduler   (병렬)
+exec/review      (독립 리뷰)
+risk             (티어 결정 — 없으면 declared_risk 를 그대로 쓴다)
+context/*        (고급 선택 — 없으면 task 계약에 명시된 파일만 넣는다)
+learn            (지식 축적)
+adapters/{claude_cli, codex_cli}
+eval/*
+container 프로파일
+```
+
+**M8의 완료 기준은 옵션 레이어를 전부 제거한 상태에서 커널이 동작함을 테스트로 증명하는 것이다.** 이 테스트가 커널/옵션 경계가 실재함을 강제한다.
+
+## 단순성 관찰 지표 (soft budget)
+
+커널 약 1,500줄은 **관찰 지표이지 합격 조건이 아니다.** 초과는 실패가 아니라 모듈 경계를 다시 볼 신호다.
+
+**줄 수를 맞추려고 가독성을 희생하는 것은 금지한다.** 한 줄에 로직을 욱여넣거나, 이름을 줄이거나, 주석을 지우는 방식으로 지표를 맞추지 않는다.
+
+`policy.py`와 `exec/handoff.py`는 커널이면서 나중에 추가된 책임이므로, 실측할 때 이 둘의 비중을 별도로 기록한다. 커널이 커진 원인이 이 둘이라면 그것은 정보이지 결함이 아니다.
+
+## 확장 지점
+
+새 기능을 추가할 때 만들어도 되는 것은 다음 셋뿐이다.
+
+1. **새 어댑터** — `adapters/`에 파일 하나. conformance 스위트 통과가 합격 조건이다. 04 참조.
+2. **새 probe 종류** — `probes.py`의 `kind` 하나. precondition 문법에 값이 하나 늘어난다.
+3. **새 이벤트 타입** — `events.py`에 추가하고 `store.py`의 fold에 반영. 기존 이벤트의 의미를 바꾸지 않는다.
+
+그 밖의 기능은 **먼저 어느 문서의 계약을 바꾸는지 밝히고** 진행한다. 계약을 바꾸지 않는 기능은 커널에 들어갈 이유가 없다.
