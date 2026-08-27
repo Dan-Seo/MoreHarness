@@ -2,7 +2,7 @@
 
 import pytest
 
-from harness import models
+from harness import errors, models
 from harness.models import (
     Debt,
     ExecutionProfile,
@@ -79,11 +79,12 @@ def test_enums_serialize_as_plain_strings():
 
 
 def test_models_imports_no_other_harness_module():
-    """docs/02 — models 는 어떤 harness 모듈도 import 하지 않는다."""
-    source = open(models.__file__, encoding="utf-8").read()
-    assert "import harness" not in source
-    assert "from harness" not in source
-    assert "from ." not in source
+    """docs/02 — models 와 errors 는 어떤 harness 모듈도 import 하지 않는다."""
+    for module in (models, errors):
+        source = open(module.__file__, encoding="utf-8").read()
+        assert "import harness" not in source, module.__name__
+        assert "from harness" not in source, module.__name__
+        assert "from ." not in source, module.__name__
 
 
 def test_task_projection_defaults_to_pending():

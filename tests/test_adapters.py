@@ -2,6 +2,7 @@
 
 import dataclasses
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -93,12 +94,13 @@ def test_requests_and_results_are_frozen(tmp_path):
         request.task_id = "T-999"
 
 
-def test_adapters_depend_only_on_models():
-    """docs/02 — adapters/* 는 models 에만 의존한다."""
+def test_adapters_depend_only_on_models_and_errors():
+    """docs/02 — adapters/* 는 models 와 errors 에만 의존한다. 형제 모듈은 같은 층이다."""
     for module in (base_module, registry_module, mock_module):
         source = open(module.__file__, encoding="utf-8").read()
-        for forbidden in ("harness.store", "harness.config", "harness.cli", "harness.events"):
-            assert forbidden not in source, module.__name__
+        imported = set(re.findall(r"^(?:from|import) harness\.([A-Za-z_.]+)", source, re.MULTILINE))
+        outside = {name for name in imported if not name.startswith("adapters")}
+        assert outside <= {"models", "errors"}, (module.__name__, outside)
 
 
 def test_no_vendor_sdk_is_imported():

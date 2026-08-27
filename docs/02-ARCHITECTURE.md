@@ -14,7 +14,7 @@ harness/
   risk.py             # effective_risk 계산
   probes.py           # precondition 검사, environment verifier
   policy.py           # Command Policy — allow / deny / require_approval
-  errors.py           # 예외 타입. 분류는 10 의 표를 따른다.
+  errors.py           # 예외 타입. 아무것도 import 하지 않는다. 분류는 10 의 표를 따른다.
   learn.py            # knowledge card 승격/폐기
 
   adapters/
@@ -52,9 +52,9 @@ evals/fixtures/<case>/
 ## 의존 방향
 
 ```
-models
+models · errors
   ↑
-events · store · dag · git · risk · probes · policy · errors
+events · store · dag · git · risk · probes · policy
   ↑
 exec/* · context/*
   ↑
@@ -66,8 +66,8 @@ cli
 규칙:
 
 - **순환 의존을 금지한다.** CI에서 import 그래프를 검사한다.
-- `models`는 어떤 harness 모듈도 import하지 않는다.
-- `adapters/*`는 `models`에만 의존한다. 벤더 SDK를 커널 어디에도 노출하지 않는다.
+- `models`와 `errors`는 어떤 harness 모듈도 import하지 않는다. 둘은 같은 최하위 계층이며 서로도 import하지 않는다.
+- `adapters/*`는 `models`와 `errors`에만 의존한다. 벤더 SDK를 커널 어디에도 노출하지 않는다.
 - **`cli`가 `eval`을 호출한다.** `eval`은 `cli`를 import하지 않는다. `eval`이 의존하는 하위 API는 `store`(journal 읽기), `exec/runner`(실행), `adapters/registry`(arm별 어댑터 선택), `models`뿐이다.
 - `eval`을 import하는 모듈은 `cli` 하나뿐이다.
 - `sys.exit`는 `cli.py`에만 존재한다. 다른 모듈은 예외를 올리거나 값을 반환한다. 그래야 라이브러리로 쓰이고 테스트된다.
