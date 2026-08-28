@@ -194,7 +194,14 @@ def _run(args: argparse.Namespace) -> int:
     try:
         config = load(repo)
         dag = Dag(load_tasks(repo))
-        store = run_dag(
+        if config.max_parallel > 1:
+            # 옵션 모듈이다 (docs/02). 병렬을 쓰지 않는 한 import 하지 않는다.
+            from harness.exec import scheduler
+
+            execute = scheduler.run_dag
+        else:
+            execute = run_dag
+        store = execute(
             repo,
             config,
             dag,

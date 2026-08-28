@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import shutil
 import tempfile
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -86,6 +87,9 @@ class Workspaces:
         self.run_id = run_id
         self.profile = profile
         self.scratch = Path(scratch) if scratch else scratch_root(self.repo, run_id)
+        # docs/05 — 통합은 항상 직렬이다. 이 락이 머지 큐이며, 워크트리 생성·제거도
+        # 같은 저장소의 ref 를 만지므로 함께 직렬화한다.
+        self._lock = threading.RLock()
 
     # ----------------------------------------------------------------- 생성
 
@@ -98,20 +102,21 @@ class Workspaces:
         if (profile or self.profile) is not ExecutionProfile.WORKTREE:
             return Workspace(task_id, self.repo, None, root)
 
-        self._ensure_integration()
-        path = root / "worktree"
-        branch = task_branch(self.run_id, task_id)
-        self._discard(path, branch)
+        with self._lock:
+            self._ensure_integration()
+            path = root / "worktree"
+            branch = task_branch(self.run_id, task_id)
+            self._discard(path, branch)
 
-        # 통합 브랜치의 **현재 tip** 에서 분기한다. run 시작 시점의 HEAD 에서 분기하면
-        # 앞선 task 가 만든 것이 이 워크스페이스에 없다 (docs/05).
-        result = git(
-            ["worktree", "add", "-b", branch, str(path), integration_branch(self.run_id)],
-            cwd=self.repo,
-        )
-        if result.exit_code != 0:
-            raise HarnessError(f"{task_id} 의 워크트리를 만들 수 없다: {result.stderr.strip()}")
-        return Workspace(task_id, path, branch, root)
+            # 통합 브랜치의 **현재 tip** 에서 분기한다. run 시작 시점의 HEAD 에서 분기하면
+            # 앞선 task 가 만든 것이 이 워크스페이스에 없다 (docs/05).
+            result = git(
+                ["worktree", "add", "-b", branch, str(path), integration_branch(self.run_id)],
+                cwd=self.repo,
+            )
+            if result.exit_code != 0:
+                raise HarnessError(f"{task_id} 의 워크트리를 만들 수 없다: {result.stderr.strip()}")
+            return Workspace(task_id, path, branch, root)
 
     def existing(self, task_id: str) -> Workspace | None:
         """재개용. 죽기 전의 워크트리가 남아 있으면 그것을 돌려준다 (docs/10)."""
@@ -132,18 +137,19 @@ class Workspaces:
         if workspace.branch is None:
             return MergeResult(True, detail="safe 프로파일에는 통합이 없다")
 
-        self._commit(workspace)
-        integration = integration_branch(self.run_id)
+        with self._lock:
+            self._commit(workspace)
+            integration = integration_branch(self.run_id)
 
-        merged = git([*COMMITTER, "merge", "--no-edit", integration], cwd=workspace.path)
-        if merged.exit_code != 0:
-            conflicts = self._conflicts(workspace.path)
-            git(["merge", "--abort"], cwd=workspace.path)
-            return MergeResult(False, conflicts, (merged.stdout + merged.stderr).strip())
+            merged = git([*COMMITTER, "merge", "--no-edit", integration], cwd=workspace.path)
+            if merged.exit_code != 0:
+                conflicts = self._conflicts(workspace.path)
+                git(["merge", "--abort"], cwd=workspace.path)
+                return MergeResult(False, conflicts, (merged.stdout + merged.stderr).strip())
 
-        # task 브랜치가 통합 브랜치를 포함하므로 이것은 fast-forward 다.
-        git(["branch", "-f", integration, workspace.branch], cwd=self.repo)
-        return MergeResult(True)
+            # task 브랜치가 통합 브랜치를 포함하므로 이것은 fast-forward 다.
+            git(["branch", "-f", integration, workspace.branch], cwd=self.repo)
+            return MergeResult(True)
 
     # ----------------------------------------------------------------- 정리
 
@@ -154,7 +160,8 @@ class Workspaces:
         """
         if workspace.branch is None or keep:
             return
-        self._remove_worktree(workspace.path)
+        with self._lock:
+            self._remove_worktree(workspace.path)
 
     # ----------------------------------------------------------------- 내부
 

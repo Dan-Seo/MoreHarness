@@ -86,11 +86,15 @@ def run_dag(
     run_id: str | None = None,
     resume: bool = False,
     scratch: Path | str | None = None,
+    runner_cls: type["Runner"] | None = None,
 ) -> Store:
     """DAG 를 끝까지 실행하고 journal 을 가진 Store 를 돌려준다.
 
     `resume` 이면 기존 run 의 journal 을 이어 쓴다. 무엇을 다시 하고 무엇을 건너뛸지는
     state 가 결정하며, 그 표는 docs/10 이 canonical 이다.
+
+    `runner_cls` 는 옵션 스케줄러(docs/02)가 같은 진입 절차를 재사용하기 위한
+    확장점이다. 커널은 스케줄러를 import 하지 않는다.
     """
     repo = Path(repo)
     if config.default_profile not in SUPPORTED_PROFILES:
@@ -103,7 +107,8 @@ def run_dag(
         config.command_policy, load_approvals(repo / HARNESS_DIR / "approved_commands.yaml")
     )
     store = Store(_run_dir(repo, run_id, resume))
-    return Runner(repo, config, store, policy, adapter, scratch).run(dag, resume=resume)
+    cls = runner_cls or Runner
+    return cls(repo, config, store, policy, adapter, scratch).run(dag, resume=resume)
 
 
 class Runner:
@@ -127,19 +132,7 @@ class Runner:
     # ----------------------------------------------------------------- 런 루프
 
     def run(self, dag: Dag, *, resume: bool = False) -> Store:
-        if resume:
-            verified, remaining = self._resume_sets(dag)
-        else:
-            self.store.append(
-                EventType.RUN_STARTED,
-                {
-                    "manifest": {"task_ids": list(dag.order())},
-                    "profile": str(self.config.default_profile),
-                    "adapter": self.config.default_adapter,
-                    "max_parallel": self.config.max_parallel,
-                },
-            )
-            verified, remaining = set(), set(dag.tasks)
+        verified, remaining = self._begin(dag, resume)
 
         while True:
             ready = dag.ready(verified, remaining)
@@ -152,6 +145,20 @@ class Runner:
 
         self.store.append(EventType.RUN_FINISHED, self._summary())
         return self.store
+
+    def _begin(self, dag: Dag, resume: bool) -> tuple[set[str], set[str]]:
+        if resume:
+            return self._resume_sets(dag)
+        self.store.append(
+            EventType.RUN_STARTED,
+            {
+                "manifest": {"task_ids": list(dag.order())},
+                "profile": str(self.config.default_profile),
+                "adapter": self.config.default_adapter,
+                "max_parallel": self.config.max_parallel,
+            },
+        )
+        return set(), set(dag.tasks)
 
     def _resume_sets(self, dag: Dag) -> tuple[set[str], set[str]]:
         """docs/10 의 재개 표. `done` 은 재실행하지 않고, 사람 손이 필요한 것은 건드리지 않는다."""
@@ -595,10 +602,13 @@ class Runner:
         if self._fixed_adapter is not None:
             return self._fixed_adapter
         name = task.agent or self.config.default_adapter
-        if name not in self._adapters:
+        adapter = self._adapters.get(name)
+        if adapter is None:
             entry = self.config.adapters[name]
-            self._adapters[name] = build_adapter(name, entry.type, entry.options)
-        return self._adapters[name]
+            # 워커 스레드가 겹치면 setdefault 가 먼저 넣은 쪽을 이긴다. 두 번 만드는 것은
+            # 낭비일 뿐 오류가 아니다.
+            adapter = self._adapters.setdefault(name, build_adapter(name, entry.type, entry.options))
+        return adapter
 
     def _env(self, task: Task, outbox: Path, attempt: int) -> dict[str, str]:
         env = {name: os.environ[name] for name in ENV_PASSTHROUGH if name in os.environ}

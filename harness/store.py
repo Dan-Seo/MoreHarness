@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
@@ -185,6 +186,9 @@ class Store:
         self.journal = Journal(self.run_dir / "journal.jsonl", self.run_id)
         self.state_path = self.run_dir / "state.json"
         self._state = self._load_or_fold()
+        # docs/03 — 병렬 실행에서도 journal writer 는 오케스트레이터 프로세스 하나뿐이다.
+        # 스케줄러의 워커 스레드가 몇 개든 append 는 이 락으로 직렬화된다.
+        self._lock = threading.Lock()
 
     @property
     def state(self) -> RunState:
@@ -197,10 +201,11 @@ class Store:
         task_id: str | None = None,
         attempt: int | None = None,
     ) -> Event:
-        event = self.journal.append(type, payload, task_id, attempt)  # 1) append + fsync
-        apply(self._state, event)  # 2) projection
-        self._write_state()  # 3) 스냅샷
-        return event
+        with self._lock:
+            event = self.journal.append(type, payload, task_id, attempt)  # 1) append + fsync
+            apply(self._state, event)  # 2) projection
+            self._write_state()  # 3) 스냅샷
+            return event
 
     def rebuild(self) -> RunState:
         """journal 을 기준으로 state 를 재구성하고 스냅샷을 다시 쓴다."""

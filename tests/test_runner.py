@@ -95,7 +95,7 @@ def _json(value):
     return json.dumps(value, ensure_ascii=False)
 
 
-def configure(repo, scenario=None, profile="safe", **extra):
+def configure(repo, scenario=None, profile="safe", max_parallel=1, **extra):
     """docs/04 — mock 은 시나리오 **파일**로 결과를 지정한다."""
     adapter = {"type": "mock"}
     if scenario is not None:
@@ -105,7 +105,7 @@ def configure(repo, scenario=None, profile="safe", **extra):
 
     data = {
         "version": 1,
-        "defaults": {"adapter": "mock", "profile": profile, "max_parallel": 1},
+        "defaults": {"adapter": "mock", "profile": profile, "max_parallel": max_parallel},
         "adapters": {"mock": adapter},
         "command_policy": {
             "default": "require_approval",
