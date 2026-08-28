@@ -15,8 +15,11 @@ harness = "harness.cli:run_cli"
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
 
-[tool.setuptools]
-packages = ["harness", "harness.adapters"]
+[tool.setuptools.packages.find]
+include = ["harness*"]
+
+[tool.setuptools.package-data]
+harness = ["resources/schemas/*.json", "resources/templates/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

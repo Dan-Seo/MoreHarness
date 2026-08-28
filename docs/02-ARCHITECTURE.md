@@ -8,7 +8,7 @@ harness/
   config.py           # .harness/config.yaml 로드·검증
   models.py           # 순수 데이터 타입. 다른 harness 모듈을 import 하지 않는다.
   events.py           # 이벤트 타입과 페이로드 스키마
-  schemas.py          # schemas/ 의 jsonschema 정의를 읽어 검증기를 만든다
+  schemas.py          # resources/schemas/ 의 jsonschema 정의를 읽어 검증기를 만든다
   store.py            # journal append + state projection + 재구성
   dag.py              # 의존 그래프, 위상 정렬, ready-set
   git.py              # git 호출 래퍼 (diff, worktree, branch, merge)
@@ -40,7 +40,7 @@ harness/
     review.py         # 리뷰 wave, finding 병합, fixer
 
   context/
-    builder.py        # 계층 조립, provenance 표시
+    builder.py        # 계층 조립, provenance 표시, 프롬프트 구획 규약 문구
     repomap.py        # 저장소 구조 요약
     slicing.py        # 문서 앵커·심볼 단위 절취
     budget.py         # 토큰 예산 배분과 탈락
@@ -48,11 +48,23 @@ harness/
   eval/               # 커널 밖
     fixtures.py  arms.py  metrics.py  report.py
 
-schemas/              # jsonschema 정의 (claim, handoff, task, spec, event)
-templates/            # spec / plan / task 템플릿
-prompts/              # 프롬프트 템플릿 (구획 경계 규약 포함)
+  resources/          # 패키지와 함께 배포되는 런타임 리소스
+    schemas/          # jsonschema 정의 (claim, handoff, task, spec, event, findings)
+    templates/        # spec / plan / task 템플릿
+
 evals/fixtures/<case>/
 ```
+
+## 배포
+
+하네스는 `pip install` 가능한 패키지로 배포되며 **설치본만으로 동작한다.** 다른 저장소에
+얹기 위해 이 저장소의 클론이 필요하다면 그것은 프레임워크가 아니라 스크립트 모음이다.
+
+- 런타임에 읽는 리소스(jsonschema 정의, 저작 템플릿)는 전부 `harness/resources/` 안에 있다.
+  **저장소 루트의 형제 디렉토리를 런타임에 읽지 않는다.**
+- 대상 저장소는 `--repo` 로 지정한다. 하네스 코드가 그 저장소 안에 있을 필요는 없다.
+- `evals/fixtures/` 와 `tests/` 는 이 저장소의 개발 자산이지 런타임 리소스가 아니다.
+  배포물에 담지 않는다.
 
 ## 의존 방향
 

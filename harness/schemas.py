@@ -1,6 +1,6 @@
 """`schemas/` 의 jsonschema 정의를 읽어 검증기를 만든다.
 
-docs/02 의 모듈 배치에서 `schemas/` 는 `harness/` 옆의 디렉토리다. 이 모듈은 그 위치를
+docs/02 의 「배포」에 따라 `resources/schemas/` 는 패키지 안에 있다. 이 모듈은 그 위치를
 아는 유일한 곳이며, 그것 말고는 아무 판단도 하지 않는다. 검증 실패를 무엇으로
 분류할지는 각 호출자가 자기 문서의 계약에 따라 정한다.
 """
@@ -13,7 +13,7 @@ from pathlib import Path
 
 from jsonschema import Draft202012Validator
 
-SCHEMA_DIR = Path(__file__).resolve().parent.parent / "schemas"
+SCHEMA_DIR = Path(__file__).resolve().parent / "resources" / "schemas"
 
 
 @lru_cache(maxsize=None)

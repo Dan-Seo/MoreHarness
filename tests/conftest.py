@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from harness.exec.workspace import repo_scratch
+from harness.schemas import SCHEMA_DIR
 
 DEFAULT_CONFIG = textwrap.dedent(
     """
@@ -78,4 +79,4 @@ def repo(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def schemas_dir() -> Path:
-    return Path(__file__).resolve().parents[1] / "schemas"
+    return SCHEMA_DIR

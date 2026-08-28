@@ -15,7 +15,7 @@ import yaml
 from harness.dag import load_tasks
 from harness.errors import HarnessError
 
-TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "templates"
+TEMPLATE_DIR = Path(__file__).resolve().parent / "resources" / "templates"
 NEEDS = "[NEEDS CLARIFICATION]"
 
 
