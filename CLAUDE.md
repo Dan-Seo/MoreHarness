@@ -6,7 +6,7 @@
 
 ## 현재 상태
 
-설계 문서 13개가 확정되어 있고 **M6(스펙 파이프라인)까지 구현되어 있다. 다음은 M7(벤더 어댑터와 능력 평가)이다.**
+설계 문서 13개가 확정되어 있고 **M7(벤더 어댑터와 능력 평가)까지 구현되어 있다. 다음은 M8(옵션 레이어)이다.**
 마일스톤에 착수하기 전 `docs/12-ROADMAP.md`의 "구현 세션을 위한 리허설 체크리스트"를 확인할 것. 거기 질문의 답이 문서에 없다면 그것은 설계의 빈틈이지 구현자가 임의로 정할 일이 아니다.
 
 ## 기술 스택
@@ -72,6 +72,7 @@ python -m harness clarify · plan · tasks  # 저작 스캐폴드
 python -m harness analyze  # 구현 전 게이트 — 실패하면 run 이 막힌다
 python -m harness converge # 구현 후 게이트 — 커버리지·드리프트·debt
 python -m harness ship     # 통합 브랜치를 사용자 브랜치로 머지
+python -m harness eval run --fixtures evals/ --arms raw,harness-full --repeat 3
 ```
 
-나머지 커맨드(`learn`·`eval`)는 뒤 마일스톤에서 만든다.
+나머지 커맨드(`learn`)는 뒤 마일스톤에서 만든다.

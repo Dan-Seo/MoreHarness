@@ -72,7 +72,16 @@ human_required: [T-002]
 | `harness-full` | 전체 |
 | `ablation:<feature>` | 특정 기능만 제거 |
 
-`raw`도 **얇은 측정 전용 래퍼**로 실행한다. 래퍼는 판정하지 않고 `agent_started`, `agent_finished`, `ac_post_executed` 이벤트만 남긴다. 그래야 모든 arm의 지표가 같은 journal 스키마에서 나온다.
+`raw`도 **얇은 측정 전용 래퍼**로 실행한다. 래퍼는 판정하지 않는다 — journal 에 남기는 것은 `run_started`/`run_finished`, `agent_started`/`agent_finished`, 그리고 fixture 에 `tasks/` 가 있으면 그 AC 합집합의 사후 실행(`ac_post_executed` 와 그것이 낳는 `command_policy_decision`)뿐이다. 판정 이벤트는 없다. 그래야 모든 arm의 지표가 같은 journal 스키마에서 나온다.
+
+### arm 의 조립
+
+| arm | 조립 |
+|---|---|
+| `raw` | 측정 래퍼. 프롬프트는 `specs/*/spec.yaml` 전문을 이어붙인 것이고, workspace 는 materialize 된 저장소의 워킹트리 자체다. outbox 는 저장소 밖이다. AC 사후 실행도 Command Policy 를 통과한다 |
+| `harness-lite` | 커널만 — sequential runner. 컨텍스트 조립 없음, 리뷰 없음, `max_parallel` 은 1 로 강제 |
+| `harness-full` | `harness run` 과 같은 조립 — 컨텍스트 빌더 + 리뷰 스테이지, `max_parallel > 1` 이면 병렬 스케줄러 |
+| `ablation:<feature>` | `harness-full` 에서 하나만 제거. `feature` ∈ {`context`, `review`, `parallel`} |
 
 ---
 
@@ -89,6 +98,39 @@ raw   harness-lite   harness-full   ablation:<f>
 ```
 
 하네스의 ship 게이트로 arm을 비교하면 `raw`는 애초에 ship 게이트를 갖지 않으므로 비교가 성립하지 않는다. **채점자는 하네스 밖에 있어야 한다.**
+
+### `grader/hidden_ac.yaml` — 능력 eval 의 채점 기준
+
+```yaml
+acceptance:
+  - cmd: ["pytest", "-q", "tests/hidden"]
+  - cmd: ["python", "-c", "import app"]
+    shell: false
+```
+
+- 항목의 모양은 task `acceptance` 와 같다 — argv 리스트가 기본이고 `shell` 은 선언해야 한다.
+- 실행 cwd 는 **채점 대상 트리**, 타임아웃은 config `ac_timeout_s` 다.
+- 전부 green 이면 그 실행은 grader 성공이다. `hidden_ac_pass_rate` 는 green AC 수 / 전체 AC 수다.
+- grader 커맨드도 Command Policy 를 통과한다 — materialize 된 저장소의 config 기준이다. 정책이 막으면 그 AC 는 red 이고 사유가 `eval.json` 에 남는다.
+- run journal 은 `run_finished` 로 닫혔으므로 **grader 는 journal 에 쓰지 않는다.** grader 의 결과와 정책 판정은 `eval.json` 이 갖는다.
+
+### 채점 대상 트리
+
+grader 가 실행되는 cwd 는 **run 이 끝난 뒤 사용자가 갖게 되는 트리**다.
+
+| 실행 | 채점 대상 |
+|---|---|
+| `raw` arm | agent 가 작업한 워킹트리 그 자체 |
+| 하네스 arm · worktree 프로파일 | integration 브랜치 tip 의 분리 체크아웃 (converge 와 같은 방식). integration 브랜치가 없으면 저장소 워킹트리 |
+| 하네스 arm · safe 프로파일 | 저장소 워킹트리 |
+
+### `escape_rate` / `false_block_rate` 의 분모
+
+- 측정 단위는 **실행 1회** (fixture × arm × repeat) 이며 하네스 arm 에만 정의된다.
+- "verified 로 판정" = run 의 모든 task 의 최종 verdict 가 `verified`.
+- "rejected/blocked 로 판정" = 최종 verdict 중 `rejected` 또는 `blocked` 가 하나 이상.
+- `escape_rate` = verified 실행 중 grader 실패 비율. `false_block_rate` = rejected/blocked 실행 중 grader 성공 비율.
+- 분모가 0 이면 지표는 null 이고 리포트에 `n/a` 로 표시한다.
 
 ---
 
@@ -148,11 +190,13 @@ raw   harness-lite   harness-full   ablation:<f>
 harness eval run --fixtures evals/ --arms raw,harness-full --repeat 3
 ```
 
-산출은 `eval-report.md`와 `eval.json`.
+- `--fixtures <dir>` 는 `<dir>/<case>/seed/` 를 찾고, 없으면 `<dir>/fixtures/<case>/seed/` 를 찾는다.
+- 산출은 `--out` (기본: `--fixtures` 디렉토리) 에 쓰는 `eval-report.md` 와 `eval.json` 이다.
+- 실행 저장소들은 시스템 temp 의 작업 디렉토리에 남고, `eval.json` 이 그 경로를 기록한다. 실패를 파고들 때 journal 이 필요하기 때문이다.
 
 ### 능력 eval 보고 규칙
 
-- **중앙값과 분산을 함께 보고한다.**
+- **중앙값과 분산을 함께 보고한다.** 비율 지표(`grader_success_rate` 등)는 실행 단위 비율로 집계하고 fixture 별 내역을 나열한다. 연속 지표(`wall_time_s`, `agent_time_s`, 토큰, `cost_usd`, `context_tokens`)는 **중앙값과 [min, max]** 를 보고한다. null 값은 제외하고, 전부 null 이면 `n/a` 다.
 - **단일 실행 수치를 개선의 근거로 제시하는 것을 금지한다.** LLM 실행은 비결정론적이므로 한 번의 좋은 결과는 정보가 아니다.
 - `--repeat`의 기본값은 3이며, 그보다 적게 실행한 결과에는 리포트가 경고를 표시한다.
 - 각 arm의 실패 사례를 fixture 단위로 나열한다. 집계만 보여주면 어디가 왜 실패했는지 알 수 없다.

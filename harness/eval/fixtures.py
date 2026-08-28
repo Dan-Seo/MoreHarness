@@ -42,10 +42,14 @@ def load(case_dir: Path | str) -> Fixture:
 
 
 def discover(fixtures_dir: Path | str) -> list[Fixture]:
+    """docs/11 — `<dir>/<case>/seed/` 를 찾고, 없으면 `<dir>/fixtures/<case>/seed/` 를 찾는다."""
     directory = Path(fixtures_dir)
     if not directory.is_dir():
         return []
-    return [load(case) for case in sorted(directory.iterdir()) if (case / SEED_DIR).is_dir()]
+    cases = [case for case in sorted(directory.iterdir()) if (case / SEED_DIR).is_dir()]
+    if not cases and (directory / "fixtures").is_dir():
+        return discover(directory / "fixtures")
+    return [load(case) for case in cases]
 
 
 def materialize(fixture: Fixture, dest: Path | str) -> Path:

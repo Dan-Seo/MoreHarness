@@ -109,6 +109,7 @@ def main(argv: list[str] | None = None) -> int:
         "run": _run,
         "converge": _converge,
         "ship": _ship,
+        "eval": _eval,
         "status": _status,
         "doctor": _doctor,
     }
@@ -155,6 +156,14 @@ def _build_parser() -> argparse.ArgumentParser:
     ship_cmd = sub.add_parser("ship", help="통합·배포 게이트 — 사용자 브랜치로 머지")
     ship_cmd.add_argument("--repo", help="저장소 루트 (기본: 현재 위치의 저장소)")
     ship_cmd.add_argument("--run", help="대상 run-id (기본: 가장 최근)")
+
+    eval_cmd = sub.add_parser("eval", help="능력 eval — fixtures × arms × repeat")
+    eval_sub = eval_cmd.add_subparsers(dest="eval_command", required=True)
+    eval_run = eval_sub.add_parser("run", help="hidden grader 로 arm 들을 비교한다")
+    eval_run.add_argument("--fixtures", required=True, help="fixture 디렉토리들의 부모")
+    eval_run.add_argument("--arms", required=True, help="쉼표로 구분한 arm 목록")
+    eval_run.add_argument("--repeat", type=int, default=3)
+    eval_run.add_argument("--out", help="리포트를 쓸 위치 (기본: --fixtures 디렉토리)")
 
     status = sub.add_parser("status", help="현재 run 상태, open_debts, human_required")
     status.add_argument("--repo", help="저장소 루트 (기본: 현재 위치의 저장소)")
@@ -383,6 +392,41 @@ def _ship(args: argparse.Namespace) -> int:
         print(f"waived: {', '.join(report.waived)}")
     print(report.detail)
     return 0 if report.ok else 1
+
+
+# --------------------------------------------------------------------------- eval (M7)
+
+
+def _eval(args: argparse.Namespace) -> int:
+    import tempfile
+
+    from harness.eval import arms as arms_mod
+    from harness.eval import fixtures as fixtures_mod
+    from harness.eval import report as report_mod
+
+    found = fixtures_mod.discover(args.fixtures)
+    if not found:
+        print(f"{args.fixtures} 에서 fixture 를 찾지 못했다")
+        return 1
+    arm_names = [name.strip() for name in args.arms.split(",") if name.strip()]
+    if not arm_names:
+        print("--arms 가 비어 있다")
+        return 1
+
+    workdir = Path(tempfile.mkdtemp(prefix="harness-eval-"))
+    try:
+        results = arms_mod.run_matrix(found, arm_names, args.repeat, workdir)
+    except HarnessError as exc:
+        print(f"eval 할 수 없다: {exc}")
+        return 1
+
+    payload = report_mod.build(results, repeat=args.repeat, workdir=workdir)
+    json_path, md_path = report_mod.write(args.out or args.fixtures, payload)
+    for arm, entry in payload["arms"].items():
+        rate = entry["grader_success_rate"]
+        print(f"{arm}: grader_success_rate {'n/a' if rate is None else format(rate, '.2f')}")
+    print(f"{md_path} · {json_path}")
+    return 0
 
 
 # --------------------------------------------------------------------------- status

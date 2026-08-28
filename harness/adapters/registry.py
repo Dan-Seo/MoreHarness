@@ -9,6 +9,8 @@ from __future__ import annotations
 from typing import Any, Callable, Mapping
 
 from harness.adapters.base import AgentAdapter
+from harness.adapters.claude_cli import build_claude_cli
+from harness.adapters.codex_cli import build_codex_cli
 from harness.adapters.generic_cli import build_generic_cli
 from harness.adapters.mock import build_mock
 from harness.errors import AdapterNotFoundError
@@ -18,6 +20,8 @@ AdapterFactory = Callable[[str, Mapping[str, Any]], AgentAdapter]
 _FACTORIES: dict[str, AdapterFactory] = {
     "mock": build_mock,
     "generic_cli": build_generic_cli,
+    "claude_cli": build_claude_cli,
+    "codex_cli": build_codex_cli,
 }
 
 

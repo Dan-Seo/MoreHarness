@@ -93,7 +93,7 @@ class GenericCliAdapter:
         prompt_file = request.outbox / PROMPT_FILENAME
         prompt_file.write_text(request.prompt, encoding="utf-8")
 
-        argv = [_fill(part, request, prompt_file) for part in self.command]
+        argv = [_fill(part, request, prompt_file) for part in self._argv(request)]
         if self.prompt_delivery == "argv":
             argv.append(request.prompt)
 
@@ -112,6 +112,10 @@ class GenericCliAdapter:
             transcript_path=None,
             runtime_failure=failure,
         )
+
+    def _argv(self, request: AgentRequest) -> Sequence[str]:
+        """벤더 어댑터의 확장점 — 요청별 argv. 기본은 설정된 command 그대로다 (docs/04)."""
+        return self.command
 
     def _spawn(self, argv: list[str], request: AgentRequest):
         """timeout 을 강제하고, 어떤 경우에도 예외를 밖으로 던지지 않는다 (docs/04 conformance)."""

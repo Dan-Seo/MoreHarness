@@ -103,7 +103,40 @@ adapters:
 
 placeholder: `{workspace} {outbox} {prompt_file} {timeout_s} {task_id} {attempt}`.
 
-**벤더 어댑터** — `claude_cli`, `codex_cli`. **선택적 능력만** 추가한다: usage 보고, 도구 화이트리스트, 세션 재사용.
+**벤더 어댑터** — `claude_cli`, `codex_cli`. `generic_cli` 위의 얇은 구성이며 **선택적 능력만** 추가한다.
+
+### `claude_cli`
+
+```yaml
+adapters:
+  claude:
+    type: claude_cli
+    binary: claude               # 기본값. argv 접두 리스트도 허용한다 (래퍼·테스트용)
+    extra_args: []               # argv 뒤에 그대로 붙는다
+    env_passthrough: [PATH, HOME]
+    timeout_grace_s: 10
+```
+
+- 구동: `<binary> -p --output-format json <extra_args...>` — 프롬프트는 **stdin**으로 준다.
+- **usage 보고** — stdout 전체를 JSON 으로 파싱해 `usage.input_tokens` / `usage.output_tokens` / `total_cost_usd` 를 읽는다. 파싱에 실패하면 usage 는 `None` 이다. 추정하지 않는다.
+- **도구 화이트리스트** — `request.allowed_tools` 가 있으면 `--allowedTools <쉼표 연결>` 을 argv 에 추가한다.
+- 세션 재사용은 지원하지 않는다 — task 단위 fresh context 가 원칙이다 (00 의 원칙 2).
+
+### `codex_cli`
+
+```yaml
+adapters:
+  codex:
+    type: codex_cli
+    binary: codex                # 기본값. argv 접두 리스트도 허용한다
+    extra_args: []
+```
+
+- 구동: `<binary> exec --json <extra_args...> -` — 프롬프트는 **stdin**으로 준다.
+- **usage 보고** — stdout 의 각 라인을 JSON 으로 시도 파싱해, `usage` 객체(`input_tokens`/`output_tokens`)를 담은 **마지막** 라인에서 읽는다. cost 는 벤더가 보고하지 않으므로 `None` 이다.
+- 도구 화이트리스트·세션 재사용은 지원하지 않는다.
+
+두 어댑터 모두 preflight 에서 binary 미발견은 `missing_prerequisite` 다. 그 외의 계약 — cwd, outbox, timeout, env 화이트리스트, 아티팩트 경로 — 은 `generic_cli` 와 문자 그대로 같으며 conformance 스위트로 증명한다. 동등한 `generic_cli` 설정이 항상 존재한다 — 프로세스 계약은 같고, 벤더 어댑터가 더 아는 것은 **usage 의 위치·형태 해석과 (claude 만) allowlist 플래그**뿐이다.
 
 ### vendor-neutrality 강제 규칙
 
