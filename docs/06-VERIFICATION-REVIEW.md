@@ -251,8 +251,9 @@ required handoff gate
 effective_risk = max(declared_risk, path_floor, diff_floor)
 ```
 
-- `path_floor` — config의 `risk_rules` 경로 패턴에서 나온다. 인증·암호·비밀·마이그레이션·CI 워크플로·컨테이너 정의·의존성 매니페스트는 `high`.
-- `diff_floor` — 변경 규모, 신규 의존성 추가, 공개 API 표면 변경에서 나온다.
+- `path_floor` — `risk_rules`의 경로 패턴(05의 glob 방언)에서 나온다. 사전에는 `allowed_paths`에, 사후에는 실제 diff 경로에 적용한다.
+- `diff_floor` — 실제 diff의 규모에서 나온다. **변경 라인 합이 400 이상이거나 변경 파일이 20개 이상이면 `medium`.** 신규 의존성·공개 API 표면 같은 신호는 경로로 표현되는 한 `risk_rules`가 잡는다 — 의존성 매니페스트가 기본 목록에 있는 이유다.
+- `risk`를 선언하지 않은 task의 declared는 `trivial`로 본다. floor가 안전망이다.
 
 **2단계로 계산한다.**
 
@@ -261,36 +262,94 @@ effective_risk = max(declared_risk, path_floor, diff_floor)
 
 사전값만 쓰면 `trivial`로 선언한 task가 인증 코드를 건드려도 리뷰를 빠져나간다. 상향만 가능하고, 하향은 기록되는 사람 waiver로만 한다. 상향은 `risk_escalated` 이벤트로 남는다.
 
+### risk_rules
+
+```yaml
+risk_rules:                      # 선언은 내장 기본 목록에 **추가**된다
+  - {match: "src/payments/**", floor: high}
+```
+
+내장 기본 목록 — 인증·암호·비밀·마이그레이션·CI 워크플로·컨테이너 정의·의존성 매니페스트:
+
+```yaml
+- {match: "**/auth/**", floor: high}
+- {match: "**/*secret*", floor: high}
+- {match: "**/*password*", floor: high}
+- {match: "**/*credential*", floor: high}
+- {match: "**/migrations/**", floor: high}
+- {match: ".github/workflows/**", floor: high}
+- {match: "**/Dockerfile*", floor: high}
+- {match: "**/docker-compose*", floor: high}
+- {match: "**/requirements*.txt", floor: high}
+- {match: "**/pyproject.toml", floor: high}
+- {match: "**/package.json", floor: high}
+- {match: "**/go.mod", floor: high}
+- {match: "**/Cargo.toml", floor: high}
+```
+
+선언으로 기본을 **끌 수 없다.** effective_risk는 전체 목록의 최대값이므로 추가는 상향만 만든다. 하향은 기록되는 사람 waiver뿐이다.
+
 ### 티어
 
-| 티어 | 리뷰 |
+| 티어 | 리뷰어 |
 |---|---|
-| `trivial` | 검증만 |
-| `low` | + spec 준수 |
-| `medium` | + 코드 품질 |
-| `high` | + 아키텍처·보안 |
-| `critical` | + cross-adapter adversarial |
+| `trivial` | 없음 — 검증만 |
+| `low` | `spec` |
+| `medium` | + `quality` |
+| `high` | + `architecture-security` |
+| `critical` | + `adversarial` (cross-adapter는 M8) |
 
 ---
 
 ## Bounded review wave
 
-`MAX_REVIEW_WAVES` 기본값은 2다.
+`max_review_waves` 기본값은 2다 (06의 config 키).
 
 ```
 wave n:
-  티어별 리뷰어를 병렬 실행
-  findings 병합 + 중복 제거
+  티어의 리뷰어를 각각 독립 실행 (fresh context — 병렬 여부는 구현 세부다)
+  findings 병합 + 중복 제거 (키: rule · file · line)
   blocking finding 이 0 이면 → handoff 게이트로
-  아니면 fixer 1명 호출 (fresh context: findings + diff + task 계약만)
-  AC post 재실행
-  scoped 재리뷰 (고쳐진 부분에 한정)
-wave 한도 초과 후에도 blocking 이 남으면 → replan 1회 → state human_required
+  아니면 fixer 1명 호출 (fresh context: findings + 해당 파일 + task 계약만)
+  AC post 재실행 + diff·경로 재판정 — 리뷰가 만든 변경도 같은 증거 기준을 통과해야 한다
+  다음 wave 에서 재리뷰
+wave 한도 초과 후에도 blocking 이 남으면 → verdict rejected (10 의 review 행)
 ```
 
 - **리뷰어는 구현자의 대화를 보지 않는다.** 컨텍스트는 diff, task 계약, constitution뿐이다. 구현자의 논리에 설득당하는 리뷰는 독립 리뷰가 아니다.
-- `blocking` 판정은 결정론적이다: `severity >= high` 또는 `rule ∈ constitution.critical`. 리뷰어가 스스로 blocking 여부를 정하지 않는다.
+- `blocking` 판정은 결정론적이다: `severity ∈ {high, critical}` 또는 `rule ∈ constitution.critical`. 리뷰어가 스스로 blocking 여부를 정하지 않는다. **constitution의 `## critical` 섹션의 리스트 항목이 그 rule 목록이다.**
 - 예산 초과 시 조용히 품질 기준을 낮추지 않는다. verdict `budget_exhausted`로 정지한다.
+
+### 리뷰어의 산출물 — findings
+
+리뷰어는 agent이며, 자기 outbox에 `findings.json`을 쓴다.
+
+```json
+{"schema": "harness.findings/v1", "task_id": "T-003",
+ "findings": [{"severity": "high", "rule": "hardcoded-secret",
+               "file": "src/db.py", "line": 12, "message": "비밀이 코드에 있다"}]}
+```
+
+- `severity`는 `info | low | medium | high | critical`.
+- **findings 파일이 없거나 schema를 위반하면 그 리뷰는 성립하지 않는다** — verdict `error` (10의 system defect). 리뷰어의 침묵을 통과로 해석하지 않는다. 발견이 없으면 빈 배열을 쓴다.
+- 각 wave의 원본은 `review/wave-<n>/<reviewer>.json`으로 보존된다 (03의 파일 배치).
+
+---
+
+## 예산 상한
+
+run이 쓸 수 있는 자원의 상한이다. **초과 시 조용히 품질 기준을 낮추지 않는다** — 그 시점의 task에 verdict `budget_exhausted`를 부여하고, 이후 task도 같은 확인에 걸려 run이 멈춘다. run 자체는 정상 종료하고 요약에 남는다 (10).
+
+```yaml
+budget:
+  max_wall_time_s: null       # run 시작부터의 벽시계 시간. null 은 무제한
+  max_agent_calls: null       # agent 프로세스 호출 수 — 리뷰어·fixer 포함
+  max_cost_usd: null          # usage 를 보고하는 어댑터에서만 유효. 추정하지 않는다 (11)
+```
+
+- 확인 지점은 **agent를 부르기 직전**이다 — attempt 시작, 리뷰어 실행, fixer 호출.
+- 확인할 때마다 `budget_checkpoint` 이벤트가 남는다. 소비량은 전부 journal의 projection이다 — 별도 카운터가 없다.
+- 상한이 하나도 설정되지 않았으면 확인하지 않고 이벤트도 남기지 않는다.
 
 ---
 
@@ -318,6 +377,15 @@ max_attempts: 2               # 한 task 가 rejected/error 로 재시도할 수
 max_handoff_repairs: 1        # repairing 에서 handoff fixer 를 부를 수 있는 횟수
 
 blocked_signals: []           # AC stderr 대조 패턴(정규식) 목록
+
+max_review_waves: 2           # bounded review wave 의 한도
+
+risk_rules: []                # effective_risk 의 경로 floor — 위 "risk_rules" 절
+
+budget:                       # 위 "예산 상한" 절
+  max_wall_time_s: null
+  max_agent_calls: null
+  max_cost_usd: null
 
 command_policy:               # 위 "Command Policy" 절의 형태
   default: require_approval

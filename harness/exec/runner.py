@@ -88,15 +88,17 @@ def run_dag(
     scratch: Path | str | None = None,
     runner_cls: type["Runner"] | None = None,
     context_builder: Any = None,
+    review_stage: Any = None,
 ) -> Store:
     """DAG 를 끝까지 실행하고 journal 을 가진 Store 를 돌려준다.
 
     `resume` 이면 기존 run 의 journal 을 이어 쓴다. 무엇을 다시 하고 무엇을 건너뛸지는
     state 가 결정하며, 그 표는 docs/10 이 canonical 이다.
 
-    `runner_cls` 와 `context_builder` 는 옵션 레이어(docs/02)가 커널에 끼어드는
-    확장점이다. 커널은 스케줄러도 context 도 import 하지 않는다 — builder 가 없으면
-    task 계약에 명시된 파일만 넣는다.
+    `runner_cls`·`context_builder`·`review_stage` 는 옵션 레이어(docs/02)가 커널에
+    끼어드는 확장점이다. 커널은 어느 것도 import 하지 않는다 — builder 가 없으면 task
+    계약에 명시된 파일만 넣고, review stage 가 없으면 verified 조건 4 는 공허하게
+    참이다 (docs/02 의 옵션 경계).
     """
     repo = Path(repo)
     if config.default_profile not in SUPPORTED_PROFILES:
@@ -110,9 +112,9 @@ def run_dag(
     )
     store = Store(_run_dir(repo, run_id, resume))
     cls = runner_cls or Runner
-    return cls(repo, config, store, policy, adapter, scratch, context_builder).run(
-        dag, resume=resume
-    )
+    return cls(
+        repo, config, store, policy, adapter, scratch, context_builder, review_stage
+    ).run(dag, resume=resume)
 
 
 class Runner:
@@ -125,6 +127,7 @@ class Runner:
         adapter: Any = None,
         scratch: Path | str | None = None,
         context_builder: Any = None,
+        review_stage: Any = None,
     ) -> None:
         self.repo = repo
         self.config = config
@@ -133,6 +136,7 @@ class Runner:
         self._fixed_adapter = adapter
         self._adapters: dict[str, Any] = {}
         self.context_builder = context_builder
+        self.review_stage = review_stage
         self.workspaces = Workspaces(repo, store.run_id, config.default_profile, scratch)
 
     # ----------------------------------------------------------------- 런 루프
@@ -204,12 +208,19 @@ class Runner:
         profile = task.profile or self.config.default_profile
 
         for attempt in range(start, self.config.max_attempts + 1):
-            workspace = (
-                self.workspaces.existing(task.id)
-                if from_verification
-                else self.workspaces.open(task.id, profile)
-            )
-            outcome = self._attempt(task, attempt, workspace, from_verification=from_verification)
+            spent = self._over_budget()
+            if spent:
+                workspace = None
+                outcome = AttemptOutcome(Verdict.BUDGET_EXHAUSTED, spent)
+            else:
+                workspace = (
+                    self.workspaces.existing(task.id)
+                    if from_verification
+                    else self.workspaces.open(task.id, profile)
+                )
+                outcome = self._attempt(
+                    task, attempt, workspace, from_verification=from_verification
+                )
             from_verification = False
             next_state = self._next_state(outcome, attempt)
             self.store.append(
@@ -223,7 +234,8 @@ class Runner:
                 task_id=task.id,
                 attempt=attempt,
             )
-            self.workspaces.close(workspace, keep=next_state is not State.DONE)
+            if workspace is not None:
+                self.workspaces.close(workspace, keep=next_state is not State.DONE)
             if next_state is not State.READY:
                 return next_state is State.DONE
         return False
@@ -259,6 +271,53 @@ class Runner:
             return State.HUMAN_REQUIRED if exhausted else State.READY
         return State.HUMAN_REQUIRED  # blocked, budget_exhausted
 
+    def _over_budget(self) -> str | None:
+        """docs/06 의 예산 상한. 소비량은 전부 journal 의 projection 이다 — 카운터가 없다.
+
+        확인 지점은 agent 를 부르기 직전이며(attempt 시작·리뷰어·fixer), 상한이 하나도
+        없으면 확인하지 않고 이벤트도 남기지 않는다.
+        """
+        budget = self.config.budget
+        if not budget.enabled:
+            return None
+
+        events = self.store.journal.read()
+        calls = sum(1 for event in events if event.type is EventType.AGENT_STARTED)
+        tokens, cost = 0, 0.0
+        for event in events:
+            if event.type is not EventType.AGENT_FINISHED:
+                continue
+            usage = event.payload.get("usage") or {}
+            tokens += (usage.get("tokens_in") or 0) + (usage.get("tokens_out") or 0)
+            cost += usage.get("cost_usd") or 0.0
+        wall = 0.0
+        if self.store.state.started_at:
+            elapsed = datetime.now().astimezone() - datetime.fromisoformat(
+                self.store.state.started_at
+            )
+            wall = max(0.0, elapsed.total_seconds())
+
+        self.store.append(
+            EventType.BUDGET_CHECKPOINT,
+            {
+                "tokens": tokens,
+                "cost_usd": cost,
+                "wall_time_s": wall,
+                "remaining": {
+                    "wall_time_s": _left(budget.max_wall_time_s, wall),
+                    "agent_calls": _left(budget.max_agent_calls, calls),
+                    "cost_usd": _left(budget.max_cost_usd, cost),
+                },
+            },
+        )
+        if budget.max_wall_time_s is not None and wall >= budget.max_wall_time_s:
+            return f"wall_time {wall:.0f}s >= {budget.max_wall_time_s}s"
+        if budget.max_agent_calls is not None and calls >= budget.max_agent_calls:
+            return f"agent_calls {calls} >= {budget.max_agent_calls}"
+        if budget.max_cost_usd is not None and cost >= budget.max_cost_usd:
+            return f"cost_usd {cost} >= {budget.max_cost_usd}"
+        return None
+
     # ----------------------------------------------------------------- attempt
 
     def _attempt(
@@ -289,20 +348,7 @@ class Runner:
         handoff = handoff_module.normalize(handoff_module.HANDOFF, raw_handoff, task_dir)
         self._record_artifact(handoff, task, attempt)
 
-        differentials = verify_module.run_post(
-            task, baseline, self.policy, cwd, self.config.ac_timeout_s
-        )
-        for differential in differentials:
-            self.store.append(
-                EventType.AC_POST_EXECUTED, differential.post_payload(), task.id, attempt
-            )
-            if differential.outcome == "debt_closed":
-                self.store.append(
-                    EventType.DEBT_CLOSED,
-                    {"debt_id": _debt_id(differential.after.cmd), "closed_by": task.id},
-                    task.id,
-                    attempt,
-                )
+        differentials = self._post(task, attempt, baseline, cwd)
 
         diff = verify_module.observe_diff(cwd, self._harness_paths(cwd)).without(before)
         violations = verify_module.check_paths(diff, task.allowed_paths, self._forbidden(task))
@@ -313,6 +359,17 @@ class Runner:
         if evidence.verdict is not None or evidence.next_state is not None:
             self._write_verification(task_dir, task, evidence, handoff)
             return AttemptOutcome(evidence.verdict, evidence.reason, evidence.next_state)
+
+        if self.review_stage is not None:
+            # verified 조건 4 (docs/06) — 옵션 리뷰 단계. fixer 가 코드를 바꾸면
+            # 갱신된 evidence 가 돌아온다.
+            reviewed = self.review_stage.run(
+                self, task, attempt, workspace, baseline, before, evidence
+            )
+            evidence = reviewed.evidence
+            if reviewed.outcome is not None:
+                self._write_verification(task_dir, task, evidence, handoff)
+                return reviewed.outcome
 
         return self._terminal(task, attempt, evidence, handoff, task_dir, workspace)
 
@@ -412,6 +469,24 @@ class Runner:
             return AttemptOutcome(Verdict.BLOCKED, report.detail)
         return AttemptOutcome(Verdict.ERROR, report.detail)
 
+    def _post(self, task: Task, attempt: int, baseline, cwd: Path | str):
+        """AC post 실행과 기록. 리뷰의 fixer 뒤에도 같은 경로로 다시 실행된다 (docs/06)."""
+        differentials = verify_module.run_post(
+            task, baseline, self.policy, cwd, self.config.ac_timeout_s
+        )
+        for differential in differentials:
+            self.store.append(
+                EventType.AC_POST_EXECUTED, differential.post_payload(), task.id, attempt
+            )
+            if differential.outcome == "debt_closed":
+                self.store.append(
+                    EventType.DEBT_CLOSED,
+                    {"debt_id": _debt_id(differential.after.cmd), "closed_by": task.id},
+                    task.id,
+                    attempt,
+                )
+        return differentials
+
     def _baseline(self, task: Task, attempt: int, cwd: Path):
         baseline = verify_module.run_baseline(
             task, self.policy, cwd, self.config.ac_timeout_s
@@ -451,8 +526,9 @@ class Runner:
         workspace: Workspace,
         prompt: str,
         repair: int = 0,
+        outbox: Path | None = None,
     ) -> AgentResult:
-        outbox = workspace.outbox(attempt, repair)
+        outbox = outbox or workspace.outbox(attempt, repair)
         outbox.mkdir(parents=True, exist_ok=True)
         adapter = self._adapter_for(task)
         request = AgentRequest(
@@ -519,6 +595,10 @@ class Runner:
                 return AttemptOutcome(None, "handoff_missing", State.HUMAN_REQUIRED)
 
             repairs += 1
+            spent = self._over_budget()
+            if spent:
+                self._write_verification(task_dir, task, evidence, handoff)
+                return AttemptOutcome(Verdict.BUDGET_EXHAUSTED, spent)
             self.store.append(
                 EventType.FIXER_DISPATCHED, {"wave": repairs, "scope": "handoff"}, task.id, attempt
             )
@@ -666,6 +746,11 @@ def _outbox_artifacts(outbox: Path) -> tuple[Path | None, Path | None]:
 
 def _denied(decision) -> bool:
     return decision is not None and decision.verdict is PolicyVerdict.DENY
+
+
+def _left(limit: float | None, spent: float) -> float | None:
+    """budget_checkpoint 의 remaining. 상한이 없으면 null 이다 (docs/06)."""
+    return None if limit is None else limit - spent
 
 
 def _debt_id(cmd: Sequence[str]) -> str:

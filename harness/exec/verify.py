@@ -11,14 +11,13 @@ finding)는 M5 가 이 자리에 더한다.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
-from functools import lru_cache
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from harness.git import git
 from harness.models import State, Task, TaskKind, Verdict
+from harness.paths import matches as _matches
 from harness.policy import CommandPolicy, Decision
 
 GREEN_BEFORE = "green_before"
@@ -218,8 +217,8 @@ def observe_diff(cwd: Path | str, exclude: Sequence[str] = ()) -> DiffObservatio
 
 
 def matches(path: str, pattern: str) -> bool:
-    """docs/05 의 glob 방언. gitignore 계열이며 저장소 루트 기준이다."""
-    return _compiled(pattern).match(_normalize(path)) is not None
+    """docs/05 의 glob 방언. 구현은 `paths` 가 갖는다 — `risk` 도 같은 방언을 쓴다."""
+    return _matches(path, pattern)
 
 
 def check_paths(
@@ -303,42 +302,6 @@ def _outcome(before: AcObservation, after: AcObservation) -> str:
 
 def _any_match(path: str, patterns: Sequence[str]) -> bool:
     return any(matches(path, pattern) for pattern in patterns)
-
-
-def _normalize(path: str) -> str:
-    """저장소 루트 기준 POSIX 경로. 심볼릭 링크는 따라가지 않는다 (docs/05)."""
-    text = path.replace("\\", "/")
-    while text.startswith("./"):
-        text = text[2:]
-    return text.rstrip("/")
-
-
-@lru_cache(maxsize=256)
-def _compiled(pattern: str) -> re.Pattern[str]:
-    """glob 을 정규식으로 옮긴다. 방언 표는 docs/05 에 있다."""
-    text = _normalize(pattern)
-    out, index, size = ["^"], 0, len(text)
-    while index < size:
-        if text.startswith("**/", index):
-            out.append("(?:.*/)?")  # 0개 이상의 세그먼트
-            index += 3
-        elif text.startswith("/**", index) and index + 3 == size:
-            out.append("(?:/.*)?")  # 앞 경로 자신과 그 아래 전부
-            index += 3
-        elif text.startswith("**", index):
-            out.append(".*")
-            index += 2
-        elif text[index] == "*":
-            out.append("[^/]*")
-            index += 1
-        elif text[index] == "?":
-            out.append("[^/]")
-            index += 1
-        else:
-            out.append(re.escape(text[index]))
-            index += 1
-    out.append("$")
-    return re.compile("".join(out))
 
 
 def _status_path(raw: str) -> str:

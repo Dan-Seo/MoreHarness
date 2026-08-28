@@ -194,10 +194,12 @@ def _run(args: argparse.Namespace) -> int:
     try:
         config = load(repo)
         dag = Dag(load_tasks(repo))
-        # 계층형 컨텍스트는 옵션 모듈이다 (docs/02) — cli 가 조립해 커널에 주입한다.
+        # 옵션 레이어 (docs/02) — cli 가 조립해 커널에 주입한다. 커널은 import 하지 않는다.
         from harness.context.builder import ContextBuilder
+        from harness.exec.review import ReviewStage
 
         builder = ContextBuilder(repo, config)
+        review = ReviewStage(repo, config)
         if config.max_parallel > 1:
             # 옵션 모듈이다 (docs/02). 병렬을 쓰지 않는 한 import 하지 않는다.
             from harness.exec import scheduler
@@ -212,6 +214,7 @@ def _run(args: argparse.Namespace) -> int:
             run_id=args.resume or args.run_id,
             resume=bool(args.resume),
             context_builder=builder,
+            review_stage=review,
         )
     except HarnessError as exc:
         print(f"실행할 수 없다: {exc}")

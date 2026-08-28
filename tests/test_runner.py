@@ -65,7 +65,11 @@ class ScriptedAdapter:
 
         request.outbox.mkdir(parents=True, exist_ok=True)
         paths = {}
-        for key, filename in (("claim", "result.json"), ("handoff", "handoff.json")):
+        for key, filename in (
+            ("claim", "result.json"),
+            ("handoff", "handoff.json"),
+            ("findings", "findings.json"),
+        ):
             content = step.get(key)
             if content is None:
                 paths[key] = None

@@ -16,6 +16,7 @@ harness/
   probes.py           # precondition 검사, environment verifier
   policy.py           # Command Policy — allow / deny / require_approval
   errors.py           # 예외 타입. 아무것도 import 하지 않는다. 분류는 10 의 표를 따른다.
+  paths.py            # docs/05 glob 방언의 경로 매칭. 아무것도 import 하지 않는다.
   learn.py            # knowledge card 승격/폐기
 
   adapters/
@@ -53,7 +54,7 @@ evals/fixtures/<case>/
 ## 의존 방향
 
 ```
-models · errors · schemas
+models · errors · schemas · paths
   ↑
 events · store · dag · git · risk · probes · policy
   ↑
@@ -67,7 +68,7 @@ cli
 규칙:
 
 - **순환 의존을 금지한다.** CI에서 import 그래프를 검사한다.
-- `models`·`errors`·`schemas`는 어떤 harness 모듈도 import하지 않는다. 셋은 같은 최하위 계층이며 서로도 import하지 않는다.
+- `models`·`errors`·`schemas`·`paths`는 어떤 harness 모듈도 import하지 않는다. 넷은 같은 최하위 계층이며 서로도 import하지 않는다.
 - `adapters/*`는 `models`와 `errors`에만 의존한다. 벤더 SDK를 커널 어디에도 노출하지 않는다.
 - **`cli`가 `eval`을 호출한다.** `eval`은 `cli`를 import하지 않는다. `eval`이 의존하는 하위 API는 `store`(journal 읽기), `exec/runner`(실행), `adapters/registry`(arm별 어댑터 선택), `models`뿐이다.
 - `eval`을 import하는 모듈은 `cli` 하나뿐이다.
@@ -78,7 +79,7 @@ cli
 **커널** — 이것만으로 파이프라인이 끝까지 동작해야 한다.
 
 ```
-models  events  store  dag  git  probes  policy  errors  config  schemas
+models  events  store  dag  git  probes  policy  errors  config  schemas  paths
 exec/{workspace, runner, verify, handoff}
 adapters/{base, registry, conformance, mock, generic_cli}
 cli

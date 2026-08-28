@@ -34,6 +34,7 @@ def run_dag(
     resume: bool = False,
     scratch: Path | str | None = None,
     context_builder: Any = None,
+    review_stage: Any = None,
 ) -> Store:
     """`runner.run_dag` 와 같은 진입 절차로 ParallelRunner 를 돌린다."""
     return runner_module.run_dag(
@@ -46,6 +47,7 @@ def run_dag(
         scratch=scratch,
         runner_cls=ParallelRunner,
         context_builder=context_builder,
+        review_stage=review_stage,
     )
 
 

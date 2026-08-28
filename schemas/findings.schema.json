@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "harness.findings/v1",
+  "type": "object",
+  "required": ["schema", "task_id", "findings"],
+  "properties": {
+    "schema": {"const": "harness.findings/v1"},
+    "task_id": {"type": "string"},
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["severity", "rule", "file", "message"],
+        "properties": {
+          "severity": {"enum": ["info", "low", "medium", "high", "critical"]},
+          "rule": {"type": "string"},
+          "file": {"type": "string"},
+          "line": {"type": ["integer", "null"]},
+          "message": {"type": "string"}
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

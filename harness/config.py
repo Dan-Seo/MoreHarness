@@ -32,6 +32,22 @@ ALWAYS_FORBIDDEN = (".harness/**",)
 
 
 @dataclass(frozen=True)
+class BudgetConfig:
+    """docs/06 이 소유하는 `budget` 키. null 은 무제한이다."""
+
+    max_wall_time_s: int | None = None
+    max_agent_calls: int | None = None
+    max_cost_usd: float | None = None
+
+    @property
+    def enabled(self) -> bool:
+        return any(
+            limit is not None
+            for limit in (self.max_wall_time_s, self.max_agent_calls, self.max_cost_usd)
+        )
+
+
+@dataclass(frozen=True)
 class ContextConfig:
     """docs/07 이 소유하는 `context` 키. 기본값도 07 의 예산 표가 canonical 이다."""
 
@@ -60,6 +76,9 @@ class Config:
     max_attempts: int
     max_handoff_repairs: int
     blocked_signals: tuple[str, ...]
+    max_review_waves: int  # docs/06 — bounded review wave 의 한도
+    risk_rules: tuple[Mapping[str, Any], ...]  # docs/06 — 항목 검증은 risk 가 한다
+    budget: BudgetConfig  # docs/06 — 예산 상한
     forbidden_paths: tuple[str, ...]  # docs/05 — 전역 금지 목록
     command_policy: Mapping[str, Any]  # 형태 검증은 policy 가 한다
     context: ContextConfig  # docs/07 — 계층형 컨텍스트 예산
@@ -126,6 +145,9 @@ def load(repo_root: Path | str) -> Config:
             data, "max_handoff_repairs", DEFAULT_MAX_HANDOFF_REPAIRS, minimum=0
         ),
         blocked_signals=_string_list(data, "blocked_signals"),
+        max_review_waves=_bounded_int(data, "max_review_waves", 2, minimum=1),
+        risk_rules=tuple(data.get("risk_rules") or ()),
+        budget=_load_budget(data.get("budget")),
         forbidden_paths=tuple(
             dict.fromkeys((*ALWAYS_FORBIDDEN, *_string_list(data, "forbidden_paths")))
         ),
@@ -133,6 +155,26 @@ def load(repo_root: Path | str) -> Config:
         context=_load_context(data.get("context")),
         path=path,
     )
+
+
+def _load_budget(raw: Any) -> BudgetConfig:
+    if raw is None:
+        return BudgetConfig()
+    if not isinstance(raw, dict):
+        raise ConfigError("budget 은 매핑이어야 한다")
+    fields: dict[str, Any] = {}
+    for key, kinds in (
+        ("max_wall_time_s", (int,)),
+        ("max_agent_calls", (int,)),
+        ("max_cost_usd", (int, float)),
+    ):
+        value = raw.get(key)
+        if value is None:
+            continue
+        if isinstance(value, bool) or not isinstance(value, kinds) or value < 0:
+            raise ConfigError(f"budget.{key} 는 0 이상의 수여야 한다: {value!r}")
+        fields[key] = value
+    return BudgetConfig(**fields)
 
 
 def _load_context(raw: Any) -> ContextConfig:
