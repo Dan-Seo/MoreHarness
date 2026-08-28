@@ -27,7 +27,7 @@ from harness.exec.runner import ENV_PASSTHROUGH, run_dag
 from harness.exec.verify import GREEN, RED
 from harness.exec.workspace import integration_branch
 from harness.git import git
-from harness.models import ExecutionProfile, RunState, Verdict
+from harness.models import RunState, Verdict
 from harness.policy import CommandPolicy, load_approvals
 from harness.store import Store
 
@@ -195,7 +195,7 @@ def run_capability(
     else:
         store = _run_harness(repo, config, arm, run_id, scratch)
         harness_call = _classify(store.state)
-        tree, cleanup = _graded_tree(repo, config, run_id, workdir)
+        tree, cleanup = _graded_tree(repo, run_id, workdir)
 
     try:
         graded = grade_in(fixture, repo, tree)
@@ -207,6 +207,15 @@ def run_capability(
 def run_matrix(
     fixtures: list[Fixture], arms: list[str], repeat: int, workdir: Path | str
 ) -> list[CapabilityResult]:
+    for arm in arms:
+        if arm != "raw":
+            _features(arm)  # 알 수 없는 arm 은 매트릭스 도중이 아니라 시작 전에 거른다
+    for fixture in fixtures:
+        if not _hidden_acceptance(fixture):
+            raise HarnessError(
+                f"{fixture.name}: grader/hidden_ac.yaml 이 없거나 비어 있다 — "
+                "채점 기준 없는 능력 eval 은 공허하게 성공할 뿐이다 (docs/11)"
+            )
     results = []
     for fixture in fixtures:
         for arm in arms:
@@ -269,13 +278,15 @@ def _noop() -> None:
     return None
 
 
-def _graded_tree(repo: Path, config: Config, run_id: str, workdir: Path):
-    """docs/11 — 채점 대상은 run 이 끝난 뒤 사용자가 갖게 되는 트리다."""
-    if config.default_profile is not ExecutionProfile.WORKTREE:
-        return repo, _noop
+def _graded_tree(repo: Path, run_id: str, workdir: Path):
+    """docs/11 — 채점 대상은 run 이 끝난 뒤 사용자가 갖게 되는 트리다.
+
+    기준은 프로파일 선언이 아니라 **integration 브랜치의 존재**다. task 별 프로파일
+    오버라이드가 섞여 있어도 ship 이 머지할 그 트리를 채점한다.
+    """
     branch = integration_branch(run_id)
     if git(["rev-parse", "--verify", "--quiet", branch], cwd=repo).exit_code != 0:
-        return repo, _noop  # 아무것도 통합되지 않았다 — 사용자 트리는 그대로다
+        return repo, _noop  # 통합 브랜치가 없다 — 사용자 트리는 그대로다
 
     path = workdir / f"graded-{run_id}"
     result = git(["worktree", "add", "--detach", str(path), branch], cwd=repo)

@@ -49,7 +49,9 @@ REQUIRED_PAYLOAD_KEYS: dict[EventType, frozenset[str]] = {
     EventType.RUN_STARTED: frozenset({"manifest", "profile", "adapter", "max_parallel"}),
     EventType.PRECONDITION_CHECKED: frozenset({"kind", "name", "ok", "detail"}),
     EventType.COMMAND_POLICY_DECISION: frozenset({"cmd", "verdict", "rule", "approver"}),
-    EventType.TASK_DISPATCHED: frozenset({"context_manifest_ref", "prompt_ref", "effective_risk"}),
+    EventType.TASK_DISPATCHED: frozenset(
+        {"context_manifest_ref", "prompt_ref", "effective_risk", "base"}
+    ),
     EventType.AGENT_STARTED: frozenset({"adapter", "workspace", "outbox"}),
     EventType.AGENT_FINISHED: frozenset({"exit_code", "duration_s", "usage", "runtime_failure"}),
     EventType.AGENT_EXIT_NONZERO: frozenset({"exit_code", "stderr_tail"}),

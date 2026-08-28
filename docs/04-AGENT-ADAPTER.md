@@ -119,7 +119,7 @@ adapters:
 
 - 구동: `<binary> -p --output-format json <extra_args...>` — 프롬프트는 **stdin**으로 준다.
 - **usage 보고** — stdout 전체를 JSON 으로 파싱해 `usage.input_tokens` / `usage.output_tokens` / `total_cost_usd` 를 읽는다. 파싱에 실패하면 usage 는 `None` 이다. 추정하지 않는다.
-- **도구 화이트리스트** — `request.allowed_tools` 가 있으면 `--allowedTools <쉼표 연결>` 을 argv 에 추가한다.
+- **도구 화이트리스트** — `request.allowed_tools` 가 있으면 `--allowedTools <쉼표 연결>` 을 argv 에 추가한다. 현재 커널의 어떤 경로도 이 필드를 채우지 않는다 — 공급원(task 계약 또는 config)의 정의는 이 문서의 계약이 아니며, 정해지기 전까지 값은 항상 `None` 이다.
 - 세션 재사용은 지원하지 않는다 — task 단위 fresh context 가 원칙이다 (00 의 원칙 2).
 
 ### `codex_cli`

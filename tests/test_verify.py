@@ -394,3 +394,38 @@ def test_no_violation_leaves_the_verdict_to_the_handoff_gate(repo):
     task = make_task(repo)
     (repo / "src.py").write_text("x", encoding="utf-8")
     assert judge(task, observe_diff(repo), (), ()).verdict is None
+
+
+# --------------------------------------------------------------------------- diff 관측 기준 (docs/06 의 base)
+
+
+def head_of(repo):
+    import subprocess
+
+    done = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True
+    )
+    return done.stdout.strip()
+
+
+def test_committed_changes_are_observed_against_the_base(repo):
+    """docs/06 — 관측 기준은 dispatch 시점 HEAD 다. 커밋 여부는 관측에 영향이 없다."""
+    base = head_of(repo)
+    (repo / "a.py").write_text("x", encoding="utf-8")
+    (repo / "README.md").write_text("changed", encoding="utf-8")
+    git(repo, "add", "-A")
+    git(repo, "-c", "user.name=a", "-c", "user.email=a@b", "commit", "-q", "-m", "agent")
+    (repo / "b.py").write_text("y", encoding="utf-8")  # 미커밋(미추적)
+
+    diff = observe_diff(repo, base=base)
+    assert set(diff.created_files) == {"a.py", "b.py"}
+    assert set(diff.changed_files) == {"README.md"}
+    assert diff.diff_stat["files"] == 3
+
+
+def test_without_a_base_only_the_working_tree_is_observed(repo):
+    """base 가 없으면 기존 관측(워킹트리)과 같다 — 하위 호환."""
+    (repo / "a.py").write_text("x", encoding="utf-8")
+    git(repo, "add", "-A")
+    git(repo, "-c", "user.name=a", "-c", "user.email=a@b", "commit", "-q", "-m", "agent")
+    assert observe_diff(repo).is_empty

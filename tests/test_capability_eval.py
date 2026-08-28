@@ -9,9 +9,11 @@ import re
 import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
 from harness.cli import main
+from harness.errors import HarnessError
 from harness.config import load as load_config
 from harness.eval import arms, fixtures, metrics, report
 from harness.events import EventType
@@ -34,6 +36,7 @@ def write_fixture(
     acceptance,
     hidden=CHECK,
     profile="worktree",
+    task_profile=None,
     allowed=("value.txt",),
     policy_rules=None,
 ):
@@ -77,25 +80,24 @@ def write_fixture(
     )
     tasks = case / "tasks"
     tasks.mkdir(parents=True)
-    (tasks / "T-001.task.yaml").write_text(
-        yaml.safe_dump(
-            {
-                "id": "T-001",
-                "name": "t-001",
-                "kind": "implementation",
-                "satisfies": ["R-001"],
-                "allowed_paths": list(allowed),
-                "acceptance": acceptance,
-            }
-        ),
-        encoding="utf-8",
-    )
+    task_data = {
+        "id": "T-001",
+        "name": "t-001",
+        "kind": "implementation",
+        "satisfies": ["R-001"],
+        "allowed_paths": list(allowed),
+        "acceptance": acceptance,
+    }
+    if task_profile is not None:
+        task_data["profile"] = task_profile
+    (tasks / "T-001.task.yaml").write_text(yaml.safe_dump(task_data), encoding="utf-8")
     grader = case / "grader"
     grader.mkdir(parents=True)
-    (grader / "hidden_ac.yaml").write_text(
-        yaml.safe_dump({"acceptance": [{"cmd": [sys.executable, "-c", hidden]}]}),
-        encoding="utf-8",
-    )
+    if hidden is not None:
+        (grader / "hidden_ac.yaml").write_text(
+            yaml.safe_dump({"acceptance": [{"cmd": [sys.executable, "-c", hidden]}]}),
+            encoding="utf-8",
+        )
     (case / "meta.yaml").write_text(yaml.safe_dump({"difficulty": "trivial"}), encoding="utf-8")
     return case
 
@@ -347,3 +349,73 @@ def test_eval_does_not_import_cli():
     for module in ("fixtures", "arms", "metrics", "report"):
         source = (Path("harness") / "eval" / f"{module}.py").read_text(encoding="utf-8")
         assert "harness.cli" not in source, module
+
+
+# --------------------------------------------------------------------------- 리뷰 수정 회귀
+
+
+def test_the_graded_tree_follows_the_integration_branch_not_the_default_profile(tmp_path):
+    """docs/11 — 기준은 integration 브랜치의 존재다. task 별 오버라이드가 섞여도 옳다."""
+    case = write_fixture(
+        tmp_path,
+        "mixed",
+        agent=AGENT_GOOD,
+        acceptance=[{"cmd": [sys.executable, "-c", CHECK], "expect_fail_before": True}],
+        profile="safe",
+        task_profile="worktree",
+    )
+    fixture = fixtures.load(case)
+
+    result = arms.run_capability(fixture, "harness-full", tmp_path / "work")
+
+    assert result.harness == "verified"
+    assert result.grader.success  # integration tip 을 채점했다
+    assert (result.repo / "value.txt").read_text(encoding="utf-8") == "0"  # 저장소 트리는 그대로
+
+
+def test_a_fixture_without_a_grader_is_refused(tmp_path):
+    """docs/11 — 채점 기준 없는 능력 eval 은 공허하게 성공할 뿐이므로 거부한다."""
+    case = write_fixture(
+        tmp_path,
+        "nograder",
+        agent=AGENT_GOOD,
+        acceptance=[{"cmd": [sys.executable, "-c", CHECK], "expect_fail_before": True}],
+        hidden=None,
+    )
+    fixture = fixtures.load(case)
+
+    with pytest.raises(HarnessError, match="hidden_ac"):
+        arms.run_matrix([fixture], ["raw"], 1, tmp_path / "work")
+
+
+def test_unknown_arms_are_refused_before_any_run(tmp_path):
+    """arm 이름 오타가 매트릭스 도중이 아니라 시작 전에 걸린다."""
+    fixture = good_fixture(tmp_path)
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+
+    with pytest.raises(HarnessError, match="ablation"):
+        arms.run_matrix([fixture], ["raw", "ablation:nope"], 1, workdir)
+    assert list(workdir.iterdir()) == []  # 아무 run 도 시작되지 않았다
+
+
+def test_human_interventions_counts_transitions_not_the_final_state(tmp_path):
+    """docs/11 — human_required 로 **간 횟수**다. journal 의 projection 이다."""
+    run_dir = tmp_path / "repo" / ".harness" / "runs" / "run-x"
+    store = Store(run_dir)
+    store.append(
+        EventType.RUN_STARTED,
+        {"manifest": {}, "profile": "safe", "adapter": "mock", "max_parallel": 1},
+    )
+    store.append(
+        EventType.VERDICT_ASSIGNED,
+        {"verdict": "blocked", "attempt": 1, "reason": "prerequisite", "next_state": "human_required"},
+        task_id="T-001",
+        attempt=1,
+    )
+    store.append(
+        EventType.RUN_FINISHED, {"summary": {}, "open_debts": [], "human_required": ["T-001"]}
+    )
+
+    measured = metrics.of_run(tmp_path / "repo", "run-x")
+    assert measured.human_interventions == 1

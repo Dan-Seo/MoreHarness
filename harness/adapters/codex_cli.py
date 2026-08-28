@@ -12,8 +12,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from harness.adapters.base import Capabilities, Usage
-from harness.adapters.claude_cli import binary_prefix
-from harness.adapters.generic_cli import DEFAULT_GRACE_S, GenericCliAdapter
+from harness.adapters.generic_cli import DEFAULT_GRACE_S, GenericCliAdapter, binary_prefix
 
 DEFAULT_BINARY = "codex"
 

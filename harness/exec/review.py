@@ -83,13 +83,16 @@ class ReviewStage:
         baseline: verify_module.Baseline,
         before: verify_module.DiffObservation,
         evidence: verify_module.Evidence,
+        base: str | None = None,
     ) -> Reviewed:
         reviewers = REVIEWERS[self._tier(runner, task, attempt, evidence.diff)]
         if not reviewers:
             return Reviewed(None, evidence)
 
         try:
-            return self._waves(runner, task, attempt, workspace, baseline, before, evidence, reviewers)
+            return self._waves(
+                runner, task, attempt, workspace, baseline, before, evidence, reviewers, base
+            )
         except _BudgetExhausted as exhausted:
             return Reviewed(AttemptOutcome(Verdict.BUDGET_EXHAUSTED, exhausted.reason), evidence)
 
@@ -103,6 +106,7 @@ class ReviewStage:
         before: verify_module.DiffObservation,
         evidence: verify_module.Evidence,
         reviewers: Sequence[str],
+        base: str | None = None,
     ) -> Reviewed:
         for wave in range(1, self.config.max_review_waves + 1):
             findings = self._wave(runner, task, attempt, workspace, wave, reviewers, evidence.diff)
@@ -128,7 +132,7 @@ class ReviewStage:
             # 리뷰가 만든 변경도 같은 증거 기준을 통과해야 한다 (docs/06)
             differentials = runner._post(task, attempt, baseline, workspace.path)
             diff = verify_module.observe_diff(
-                workspace.path, runner._harness_paths(workspace.path)
+                workspace.path, runner._harness_paths(workspace.path), base=base
             ).without(before)
             violations = verify_module.check_paths(
                 diff, task.allowed_paths, runner._forbidden(task)
@@ -156,7 +160,7 @@ class ReviewStage:
         floors = risk_module.assess(
             task.risk,
             (*diff.changed_files, *diff.created_files),
-            sum(diff.diff_stat.values()),
+            diff.diff_stat.get("insertions", 0) + diff.diff_stat.get("deletions", 0),
             len(diff.changed_files) + len(diff.created_files),
             self.rules,
         )

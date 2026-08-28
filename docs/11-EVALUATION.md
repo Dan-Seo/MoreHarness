@@ -113,6 +113,7 @@ acceptance:
 - 전부 green 이면 그 실행은 grader 성공이다. `hidden_ac_pass_rate` 는 green AC 수 / 전체 AC 수다.
 - grader 커맨드도 Command Policy 를 통과한다 — materialize 된 저장소의 config 기준이다. 정책이 막으면 그 AC 는 red 이고 사유가 `eval.json` 에 남는다.
 - run journal 은 `run_finished` 로 닫혔으므로 **grader 는 journal 에 쓰지 않는다.** grader 의 결과와 정책 판정은 `eval.json` 이 갖는다.
+- `hidden_ac.yaml` 이 없거나 `acceptance` 가 비어 있으면 능력 eval 은 그 fixture 를 **실행하지 않고 오류로 거부한다.** 채점 기준 없는 측정은 공허하게 성공할 뿐이다.
 
 ### 채점 대상 트리
 
@@ -121,8 +122,9 @@ grader 가 실행되는 cwd 는 **run 이 끝난 뒤 사용자가 갖게 되는 
 | 실행 | 채점 대상 |
 |---|---|
 | `raw` arm | agent 가 작업한 워킹트리 그 자체 |
-| 하네스 arm · worktree 프로파일 | integration 브랜치 tip 의 분리 체크아웃 (converge 와 같은 방식). integration 브랜치가 없으면 저장소 워킹트리 |
-| 하네스 arm · safe 프로파일 | 저장소 워킹트리 |
+| 하네스 arm | integration 브랜치가 있으면 그 tip 의 분리 체크아웃 (converge 와 같은 방식), 없으면 저장소 워킹트리 |
+
+기준은 프로파일 선언이 아니라 **integration 브랜치의 존재**다 — task 별 프로파일 오버라이드가 섞여 있어도 ship 이 머지할 그 트리를 채점한다.
 
 ### `escape_rate` / `false_block_rate` 의 분모
 

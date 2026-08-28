@@ -167,6 +167,13 @@ class GenericCliAdapter:
         return None
 
 
+def binary_prefix(options: Mapping[str, Any], default: str) -> list[str]:
+    """`binary` 는 실행 파일 경로다. 래퍼로 구동해야 하는 환경(테스트의 가짜 CLI 포함)을
+    위해 argv 접두 리스트도 허용한다 (docs/04). 벤더 어댑터들이 함께 쓴다."""
+    binary = options.get("binary", default)
+    return list(binary) if isinstance(binary, (list, tuple)) else [str(binary)]
+
+
 def build_generic_cli(name: str, options: Mapping[str, Any]) -> GenericCliAdapter:
     return GenericCliAdapter(name, options)
 

@@ -29,9 +29,10 @@ from harness.events import EventType
 from harness.exec import handoff as handoff_module
 from harness.exec import verify as verify_module
 from harness.exec.workspace import MergeResult, Workspace, Workspaces
+from harness.git import git
 from harness.models import ExecutionProfile, State, Task, Verdict
 from harness.policy import CommandPolicy, PolicyVerdict, load_approvals
-from harness.probes import check_all
+from harness.probes import check_all, matching_blocked_signal
 from harness.store import Store
 
 STDERR_TAIL_CHARS = 2000
@@ -334,13 +335,16 @@ class Runner:
 
         baseline = self._baseline_from_journal(task, attempt) if from_verification else None
         if baseline is None:
-            before, baseline, outbox, stop = self._up_to_dispatch(task, attempt, workspace, task_dir)
+            before, baseline, outbox, base, stop = self._up_to_dispatch(
+                task, attempt, workspace, task_dir
+            )
             if stop:
                 return stop
         else:
             # 재개다. 워크트리는 죽기 전 그대로이므로 뺄 것이 없다.
             before = verify_module.DiffObservation((), (), {})
             outbox = _outbox_artifacts(workspace.outbox(attempt))
+            base = self._base_from_journal(task, attempt)
 
         raw_claim, raw_handoff = outbox
         claim = handoff_module.normalize(handoff_module.CLAIM, raw_claim, task_dir)
@@ -350,32 +354,38 @@ class Runner:
 
         differentials = self._post(task, attempt, baseline, cwd)
 
-        diff = verify_module.observe_diff(cwd, self._harness_paths(cwd)).without(before)
+        diff = verify_module.observe_diff(
+            cwd, self._harness_paths(cwd), base=base
+        ).without(before)
         violations = verify_module.check_paths(diff, task.allowed_paths, self._forbidden(task))
         for violation in violations:
             self.store.append(EventType.PATH_VIOLATION, violation.to_payload(), task.id, attempt)
 
         evidence = verify_module.judge(task, diff, differentials, violations)
         if evidence.verdict is not None or evidence.next_state is not None:
+            outcome = AttemptOutcome(evidence.verdict, evidence.reason, evidence.next_state)
+            outcome = self._reclassified(task, attempt, evidence, claim, outcome)
             self._write_verification(task_dir, task, evidence, handoff)
-            return AttemptOutcome(evidence.verdict, evidence.reason, evidence.next_state)
+            return outcome
 
         if self.review_stage is not None:
             # verified 조건 4 (docs/06) — 옵션 리뷰 단계. fixer 가 코드를 바꾸면
             # 갱신된 evidence 가 돌아온다.
             reviewed = self.review_stage.run(
-                self, task, attempt, workspace, baseline, before, evidence
+                self, task, attempt, workspace, baseline, before, evidence, base=base
             )
             evidence = reviewed.evidence
             if reviewed.outcome is not None:
+                outcome = self._reclassified(task, attempt, evidence, claim, reviewed.outcome)
                 self._write_verification(task_dir, task, evidence, handoff)
-                return reviewed.outcome
+                return outcome
 
         return self._terminal(task, attempt, evidence, handoff, task_dir, workspace)
 
     def _up_to_dispatch(self, task: Task, attempt: int, workspace: Workspace, task_dir: Path):
         """프롬프트 → precheck → baseline → agent. 중간에 멈추면 그 사유를 돌려준다."""
         prompt_path, manifest_ref = self._write_prompt(task, task_dir, workspace)
+        base = self._head(workspace.path)
         self.store.append(
             EventType.TASK_DISPATCHED,
             {
@@ -383,6 +393,8 @@ class Runner:
                 "prompt_ref": str(prompt_path),
                 # risk 모듈이 없으면 선언값을 그대로 쓴다 (docs/02 의 옵션 경계)
                 "effective_risk": str(task.risk) if task.risk else None,
+                # diff 관측의 기준 (docs/06). 재개는 journal 에서 이 값을 복원한다.
+                "base": base,
             },
             task_id=task.id,
             attempt=attempt,
@@ -393,19 +405,97 @@ class Runner:
 
         stop = self._precheck(task, attempt)
         if stop:
-            return empty, None, nothing, stop
+            return empty, None, nothing, base, stop
 
         baseline, stop = self._baseline(task, attempt, workspace.path)
         if stop:
-            return empty, baseline, nothing, stop
+            return empty, baseline, nothing, base, stop
 
-        before = verify_module.observe_diff(workspace.path, self._harness_paths(workspace.path))
+        before = verify_module.observe_diff(
+            workspace.path, self._harness_paths(workspace.path), base=base
+        )
         result = self._dispatch(task, attempt, workspace, prompt_path.read_text(encoding="utf-8"))
         outbox = (result.raw_claim_path, result.raw_handoff_path)
         if result.runtime_failure is not None:
             failure = AttemptOutcome(Verdict.ERROR, str(result.runtime_failure))
-            return before, baseline, outbox, failure
-        return before, baseline, outbox, None
+            return before, baseline, outbox, base, failure
+        return before, baseline, outbox, base, None
+
+    @staticmethod
+    def _head(cwd: Path) -> str | None:
+        result = git(["rev-parse", "HEAD"], cwd=cwd)
+        return result.stdout.strip() if result.exit_code == 0 else None
+
+    def _base_from_journal(self, task: Task, attempt: int) -> str | None:
+        """docs/10 — 죽은 attempt 의 관측 기준은 journal 의 task_dispatched 가 갖고 있다."""
+        for event in reversed(self.store.journal.read()):
+            if (
+                event.type is EventType.TASK_DISPATCHED
+                and event.task_id == task.id
+                and event.attempt == attempt
+            ):
+                return event.payload.get("base")
+        return None
+
+    def _reclassified(
+        self,
+        task: Task,
+        attempt: int,
+        evidence: verify_module.Evidence,
+        claim: handoff_module.Artifact,
+        outcome: AttemptOutcome,
+    ) -> AttemptOutcome:
+        """docs/06 — 실행 후 실패의 재분류. `blocked` 는 하네스 소유 증거로만 도달한다.
+
+        AC 실패로 rejected 된 경우에만 environment verifier 가 돈다. claim 의
+        blocked_hint 는 probe 를 돌리는 트리거일 뿐이며, probe 가 통과하면 인정하지
+        않고 `claim_uncorroborated` 를 남긴다.
+        """
+        if outcome.verdict is not Verdict.REJECTED or outcome.reason not in (
+            "regression",
+            "unmet",
+        ):
+            return outcome
+
+        for differential in evidence.differentials:
+            if not differential.rejects:
+                continue
+            pattern = matching_blocked_signal(
+                differential.after.stderr_tail, self.config.blocked_signals
+            )
+            if pattern:
+                return AttemptOutcome(Verdict.BLOCKED, f"blocked_signal: {pattern}")
+
+        hint = None
+        if claim.valid:
+            hint = claim.data.get("blocked_hint") or (
+                "blocked" if claim.data.get("outcome_claim") == "blocked" else None
+            )
+        if not task.preconditions and hint is None:
+            return outcome  # 재실행할 probe 가 없다
+
+        results = check_all(task.preconditions, self.policy, self.repo, self.config.ac_timeout_s)
+        for result in results:
+            if result.decision is not None:
+                self.store.append(
+                    EventType.COMMAND_POLICY_DECISION,
+                    result.decision.to_payload(),
+                    task.id,
+                    attempt,
+                )
+            self.store.append(EventType.PRECONDITION_CHECKED, result.to_payload(), task.id, attempt)
+        failed = [result for result in results if not result.ok]
+        if failed:
+            return AttemptOutcome(Verdict.BLOCKED, f"prerequisite: {failed[0].name}")
+
+        if hint is not None:
+            self.store.append(
+                EventType.CLAIM_UNCORROBORATED,
+                {"hint": hint, "probe": [result.name for result in results], "probe_result": "pass"},
+                task.id,
+                attempt,
+            )
+        return outcome
 
     def _harness_paths(self, cwd: Path) -> tuple[str, ...]:
         """하네스가 자기 run 디렉토리에 쓴 것은 task 의 변경이 아니다.

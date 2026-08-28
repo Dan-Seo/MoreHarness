@@ -61,7 +61,7 @@ def render(payload: dict[str, Any]) -> str:
             value = (
                 "n/a"
                 if stats is None
-                else f"중앙값 {stats['median']:g} [{stats['min']:g}, {stats['max']:g}]"
+                else f"중앙값 {_stat(stats['median'])} [{_stat(stats['min'])}, {_stat(stats['max'])}]"
             )
             lines.append(f"- {name}: {value}")
         failures = [run for run in entry["runs"] if not run["grader_success"]]
@@ -110,3 +110,10 @@ def _run_payload(result: CapabilityResult) -> dict[str, Any]:
 
 def _fmt(value: float | None) -> str:
     return "n/a" if value is None else f"{value:.2f}"
+
+
+def _stat(value: float) -> str:
+    """토큰 수 같은 큰 값이 지수 표기로 빠지지 않게 한다."""
+    if float(value).is_integer():
+        return format(int(value), ",")
+    return f"{value:,.3f}".rstrip("0").rstrip(".")

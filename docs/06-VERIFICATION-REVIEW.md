@@ -164,6 +164,8 @@ outbox 의 raw claim / raw handoff 발견
 3. 위 차등 판정표에서 `rejected` 사유가 없음
 4. `effective_risk` 티어가 요구하는 리뷰의 blocking finding이 0
 
+diff 의 관측 기준은 **dispatch 시점의 HEAD**(`task_dispatched` 의 `base`)다. agent 가 변경을 커밋했든 워킹트리에 남겼든 같은 diff 로 관측된다 — 커밋 여부는 판정에 영향을 주지 않는다 (05).
+
 **claim이 깨졌거나 없다는 이유만으로 rejected되는 경로는 존재하지 않는다.**
 
 `implementation` task인데 diff가 비었고 AC가 전부 통과하면 조용히 통과시키지 않는다. `no_op_detected`로 기록하고 state `needs_replan`으로 보낸다. 이 조합은 AC에 검증력이 없다는 신호다.

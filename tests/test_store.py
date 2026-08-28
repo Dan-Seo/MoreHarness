@@ -163,7 +163,7 @@ def test_lifecycle_states_follow_the_state_machine(tmp_path):
 
     store.append(
         EventType.TASK_DISPATCHED,
-        {"context_manifest_ref": None, "prompt_ref": None, "effective_risk": "medium"},
+        {"context_manifest_ref": None, "prompt_ref": None, "effective_risk": "medium", "base": None},
         task_id="T-001",
         attempt=1,
     )
@@ -300,7 +300,7 @@ def test_events_for_unknown_tasks_are_still_projected(tmp_path):
     start_run(store)
     store.append(
         EventType.TASK_DISPATCHED,
-        {"context_manifest_ref": None, "prompt_ref": None, "effective_risk": "low"},
+        {"context_manifest_ref": None, "prompt_ref": None, "effective_risk": "low", "base": None},
         task_id="T-099",
         attempt=1,
     )
@@ -315,7 +315,7 @@ def build_full_journal(store):
     for task_id in ("T-001", "T-002"):
         store.append(
             EventType.TASK_DISPATCHED,
-            {"context_manifest_ref": None, "prompt_ref": None, "effective_risk": "medium"},
+            {"context_manifest_ref": None, "prompt_ref": None, "effective_risk": "medium", "base": None},
             task_id=task_id,
             attempt=1,
         )

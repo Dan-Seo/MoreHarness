@@ -269,7 +269,7 @@ state.json      fold(journal) 의 스냅샷              <- 파생 캐시
 | `run_started` | run 시작 | `manifest`, `profile`, `adapter`, `max_parallel` |
 | `precondition_checked` | precheck | `kind`, `name`, `ok`, `detail` (**값은 기록하지 않는다**) |
 | `command_policy_decision` | 커맨드 실행 직전 | `cmd`, `verdict`, `rule`, `approver` |
-| `task_dispatched` | 디스패치 | `context_manifest_ref`, `prompt_ref`, `effective_risk` |
+| `task_dispatched` | 디스패치 | `context_manifest_ref`, `prompt_ref`, `effective_risk`, `base`(dispatch 시점 HEAD — diff 관측의 기준, 06 참조) |
 | `agent_started` | 프로세스 시작 | `adapter`, `workspace`, `outbox` |
 | `agent_finished` | 프로세스 종료 | `exit_code`, `duration_s`, `usage`(미보고 시 `null`), `runtime_failure` |
 | `agent_exit_nonzero` | exit code ≠ 0 | `exit_code`, `stderr_tail` |

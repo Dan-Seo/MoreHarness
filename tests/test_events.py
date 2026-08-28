@@ -11,7 +11,7 @@ CANONICAL_EVENTS = {
     "run_started": {"manifest", "profile", "adapter", "max_parallel"},
     "precondition_checked": {"kind", "name", "ok", "detail"},
     "command_policy_decision": {"cmd", "verdict", "rule", "approver"},
-    "task_dispatched": {"context_manifest_ref", "prompt_ref", "effective_risk"},
+    "task_dispatched": {"context_manifest_ref", "prompt_ref", "effective_risk", "base"},
     "agent_started": {"adapter", "workspace", "outbox"},
     "agent_finished": {"exit_code", "duration_s", "usage", "runtime_failure"},
     "agent_exit_nonzero": {"exit_code", "stderr_tail"},

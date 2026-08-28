@@ -12,16 +12,9 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from harness.adapters.base import AgentRequest, Capabilities, Usage
-from harness.adapters.generic_cli import DEFAULT_GRACE_S, GenericCliAdapter
+from harness.adapters.generic_cli import DEFAULT_GRACE_S, GenericCliAdapter, binary_prefix
 
 DEFAULT_BINARY = "claude"
-
-
-def binary_prefix(options: Mapping[str, Any], default: str) -> list[str]:
-    """`binary` 는 실행 파일 경로다. 래퍼로 구동해야 하는 환경(테스트의 가짜 CLI 포함)을
-    위해 argv 접두 리스트도 허용한다 (docs/04)."""
-    binary = options.get("binary", default)
-    return list(binary) if isinstance(binary, (list, tuple)) else [str(binary)]
 
 
 class ClaudeCliAdapter(GenericCliAdapter):

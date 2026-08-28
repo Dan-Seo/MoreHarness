@@ -839,3 +839,161 @@ def test_a_task_that_needs_a_human_is_not_resumed(repo):
 
     store = go(repo, config, Refuses([{}]), resume=True)
     assert task_of(store, "T-001").state is State.HUMAN_REQUIRED
+
+
+# --------------------------------------------------------------------------- agent 의 커밋 (docs/05)
+
+
+class CommittingAdapter(ScriptedAdapter):
+    """step 의 `committed` 파일을 워크스페이스에서 실제로 커밋한다.
+
+    실제 코딩 agent 는 자주 커밋한다. docs/05 — 커밋 여부는 판정에 영향을 주지 않는다.
+    """
+
+    def execute(self, request):
+        result = super().execute(request)
+        step = self.steps[min(len(self.requests) - 1, len(self.steps) - 1)]
+        committed = step.get("committed") or {}
+        for relative, content in committed.items():
+            target = request.workspace / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
+        if committed:
+            subprocess.run(
+                ["git", "add", "-A"], cwd=request.workspace, check=True, capture_output=True
+            )
+            subprocess.run(
+                ["git", "-c", "user.name=a", "-c", "user.email=a@b", "commit", "-q", "-m", "agent"],
+                cwd=request.workspace,
+                check=True,
+                capture_output=True,
+            )
+        return result
+
+
+def test_a_committed_change_outside_allowed_paths_is_still_rejected(repo):
+    """docs/05·06 — 커밋으로 숨긴 경로 위반도 같은 diff 로 관측되고 탐지된다."""
+    config = configure(repo, profile="worktree")
+    write_task(repo, "T-001", allowed_paths=["allowed/**"])
+    adapter = CommittingAdapter(
+        [{"files": {"allowed/w.py": "1\n"}, "committed": {"secrets/leak.txt": "oops\n"}}]
+    )
+
+    store = go(repo, config, adapter)
+
+    task = task_of(store, "T-001")
+    assert task.verdict is Verdict.REJECTED
+    assert task.reason == "path_violation"
+    assert EventType.PATH_VIOLATION in types_for(store, "T-001")
+    assert out(repo, "show", f"{integration_branch('run-1')}:secrets/leak.txt") == ""
+
+
+def test_an_agent_that_commits_all_its_work_is_still_verified(repo):
+    """docs/05 — 전부 커밋해도 no_op 로 오판하지 않고, 작업은 통합된다."""
+    config = configure(repo, profile="worktree")
+    write_task(repo, "T-001", allowed_paths=["src/**"])
+    adapter = CommittingAdapter([{"committed": {"src/a.py": "1\n"}}])
+
+    store = go(repo, config, adapter)
+
+    assert task_of(store, "T-001").verdict is Verdict.VERIFIED
+    assert out(repo, "show", f"{integration_branch('run-1')}:src/a.py") == "1"
+
+
+def test_a_commit_in_the_safe_profile_is_observed_too(repo):
+    """safe 프로파일도 dispatch 시점 HEAD 가 기준이다."""
+    config = configure(repo)
+    write_task(repo, "T-001")
+    adapter = CommittingAdapter([{"committed": {"a.py": "1\n"}}])
+
+    store = go(repo, config, adapter)
+    assert task_of(store, "T-001").verdict is Verdict.VERIFIED
+
+
+# --------------------------------------------------------------------------- 실행 후 blocked 재분류 (docs/06)
+
+
+def test_an_environmental_failure_signature_reclassifies_to_blocked(repo):
+    """docs/06 — AC stderr 가 blocked_signals 와 맞으면 rejected 가 아니라 blocked 다."""
+    config = configure(
+        repo,
+        blocked_signals=["connection refused"],
+        scenario={"tasks": {"T-001": {"files": {"a.py": "1\n"}}}},
+    )
+    write_task(
+        repo,
+        "T-001",
+        acceptance=[
+            ac(
+                "import sys; sys.stderr.write('psql: connection refused'); raise SystemExit(1)",
+                expect_fail_before=True,
+            )
+        ],
+    )
+
+    store = go(repo, config)
+
+    task = task_of(store, "T-001")
+    assert task.verdict is Verdict.BLOCKED
+    assert "connection refused" in task.reason
+    assert task.state is State.HUMAN_REQUIRED
+
+
+def test_a_precondition_that_broke_mid_run_reclassifies_to_blocked(repo):
+    """docs/06 — AC 실패 시 preconditions 를 재실행한다. precheck 는 통과했었다."""
+    (repo / ".env.local").write_text("x", encoding="utf-8")
+    # max_attempts=1 — 재시도의 precheck 가 아니라 같은 attempt 안의 재분류를 증명한다
+    config = configure(
+        repo, max_attempts=1, scenario={"tasks": {"T-001": {"files": {"a.py": "1\n"}}}}
+    )
+    write_task(
+        repo,
+        "T-001",
+        preconditions=[{"kind": "file", "path": ".env.local"}],
+        acceptance=[
+            ac(
+                "import os, sys; os.path.exists('.env.local') and os.remove('.env.local'); sys.exit(1)",
+                expect_fail_before=True,
+            )
+        ],
+    )
+
+    store = go(repo, config)
+
+    task = task_of(store, "T-001")
+    assert task.verdict is Verdict.BLOCKED
+    assert task.reason.startswith("prerequisite")
+
+
+def test_an_uncorroborated_blocked_hint_stays_rejected(repo):
+    """docs/06 — probe 가 통과하면 힌트를 인정하지 않는다. claim_uncorroborated 가 남는다."""
+    configure(repo)
+    write_task(
+        repo,
+        "T-001",
+        preconditions=[{"kind": "file", "path": "README.md"}],
+        acceptance=[exits(1, expect_fail_before=True)],
+    )
+    adapter = ScriptedAdapter(
+        [
+            {
+                "files": {"a.py": "1\n"},
+                "claim": {
+                    "schema": "harness.claim/v1",
+                    "task_id": "T-001",
+                    "outcome_claim": "blocked",
+                    "blocked_hint": "DB 가 없어 보임",
+                },
+            }
+        ]
+    )
+
+    store = go(repo, load(repo), adapter)
+
+    task = task_of(store, "T-001")
+    assert task.verdict is Verdict.REJECTED
+    event = next(
+        e for e in store.journal.read() if e.type is EventType.CLAIM_UNCORROBORATED
+    )
+    assert event.payload["hint"] == "DB 가 없어 보임"
+    assert event.payload["probe_result"] == "pass"

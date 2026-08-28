@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 from harness.adapters.registry import build
-from harness.config import load
+from harness.config import HARNESS_DIR, load
 from harness.dag import Dag, load_tasks
 from harness.errors import (
     AdapterNotFoundError,
@@ -29,7 +29,6 @@ from harness.git import git, is_repo, repo_root
 from harness.models import RunState, State
 from harness.store import Journal, Store, check_sequence, fold
 
-HARNESS_DIR = ".harness"
 REQUIRED_CONTROL_PLANE = (
     "config.yaml",
     "constitution.md",

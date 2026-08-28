@@ -196,8 +196,14 @@ def run_post(
     return tuple(differentials)
 
 
-def observe_diff(cwd: Path | str, exclude: Sequence[str] = ()) -> DiffObservation:
+def observe_diff(
+    cwd: Path | str, exclude: Sequence[str] = (), base: str | None = None
+) -> DiffObservation:
     """작업 트리에서 하네스가 직접 읽은 변경. agent 의 보고를 쓰지 않는다.
+
+    `base` 는 docs/06 의 관측 기준 — dispatch 시점의 HEAD 다. 있으면 추적 중인 변경은
+    `git diff <base>` 로 읽으므로 **agent 가 커밋했든 워킹트리에 남겼든 같은 diff 로
+    관측된다** (docs/05). 없으면 워킹트리만 본다 (base 를 알 수 없는 호출자용).
 
     `exclude` 는 **하네스 자신이 쓴 경로**다. `safe` 프로파일에서는 하네스와 agent 가
     한 디렉토리를 쓰므로, 하네스가 남긴 journal 과 아티팩트를 task 의 변경으로 세면
@@ -205,15 +211,32 @@ def observe_diff(cwd: Path | str, exclude: Sequence[str] = ()) -> DiffObservatio
     """
     status = git(["status", "--porcelain", "--untracked-files=all"], cwd=cwd)
     changed, created = [], []
+    untracked = 0
     for line in status.stdout.splitlines():
         if not line.strip():
             continue
         code, path = line[:2], _status_path(line[3:])
         if _any_match(path, exclude):
             continue
+        if base is not None:
+            if code == "??":
+                created.append(path)
+                untracked += 1
+            continue  # 추적 중인 변경은 base 대비 diff 가 전부 안다
         (created if code in ("??", "A ", "AM") else changed).append(path)
 
-    return DiffObservation(tuple(changed), tuple(created), _numstat(cwd, len(created)))
+    if base is None:
+        return DiffObservation(tuple(changed), tuple(created), _numstat(cwd, len(created)))
+
+    for line in git(["diff", "--name-status", base], cwd=cwd).stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) < 2:
+            continue
+        path = _status_path(parts[-1])
+        if _any_match(path, exclude):
+            continue
+        (created if parts[0].startswith("A") else changed).append(path)
+    return DiffObservation(tuple(changed), tuple(created), _numstat(cwd, untracked, base))
 
 
 def matches(path: str, pattern: str) -> bool:
@@ -310,9 +333,9 @@ def _status_path(raw: str) -> str:
     return path.strip('"')
 
 
-def _numstat(cwd: Path | str, created_count: int) -> dict[str, int]:
-    """추적 중인 파일의 삽입·삭제 줄 수. 새 파일은 numstat 에 없으므로 개수만 더한다."""
-    result = git(["diff", "--numstat"], cwd=cwd)
+def _numstat(cwd: Path | str, created_count: int, base: str | None = None) -> dict[str, int]:
+    """추적 중인 파일의 삽입·삭제 줄 수. numstat 에 없는 파일은 개수만 더한다."""
+    result = git(["diff", "--numstat", *([base] if base else [])], cwd=cwd)
     files = insertions = deletions = 0
     for line in result.stdout.splitlines():
         parts = line.split("\t")

@@ -53,7 +53,10 @@ def of_run(repo: Path | str, run_id: str) -> RunMetrics:
         retry_count=max((e.attempt or 0 for e in verdicts), default=0),
         first_pass=_first_pass(verdicts),
         review_waves=sum(1 for e in events if e.type is EventType.FIXER_DISPATCHED),
-        human_interventions=len(store.state.human_required),
+        # docs/11 — human_required 로 **간 횟수**다. 현재 상태가 아니라 전이를 센다.
+        human_interventions=sum(
+            1 for e in verdicts if e.payload.get("next_state") == "human_required"
+        ),
         context_tokens=_context_tokens(run_dir),
     )
 
