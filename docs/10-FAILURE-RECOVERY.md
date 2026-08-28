@@ -75,12 +75,13 @@ harness run --resume <run-id>
 |---|---|
 | `done` (verdict `verified`) | **재실행하지 않는다** |
 | `pending`, `ready` | 정상 스케줄링 |
-| `precheck`, `running` | 프로세스가 죽었다. 워크트리·outbox를 정리하고 **새 attempt를 시작한다** |
-| `verifying`, `reviewing` | agent 실행은 끝났다. 워크트리가 남아 있으면 검증부터 재개, 없으면 새 attempt |
-| `repairing` | handoff fixer 부터 재개 |
+| `precheck`, `running` | agent 실행이 끝나지 않았다. 워크트리·outbox를 정리하고 **그 attempt를 처음부터 다시 시작한다** |
+| `executed`, `verifying`, `reviewing`, `repairing` | agent 실행은 끝났다. 워크트리와 outbox가 남아 있으면 **그 attempt의 검증부터 재개한다** — baseline은 journal의 `ac_baseline_executed`로 복원하므로 agent를 다시 부르지 않는다. 남아 있지 않으면 그 attempt를 처음부터 |
 | `human_required`, `needs_replan`, `integration_conflict` | 재개하지 않는다. 사람이 조치한 뒤 새 run 또는 명시적 재개 |
 
-병렬 실행 중 죽었다면 진행 중이던 워크트리를 전부 정리한 뒤 재개한다. 중간 상태의 워크트리를 재사용하지 않는다.
+죽은 attempt는 **같은 attempt 번호로** 다시 시작한다. 크래시는 재시도 한도를 소진시키지 않는다 — `max_attempts`는 판정이 목표 미달을 보였을 때의 한도이지 프로세스가 죽은 횟수의 한도가 아니다. **그 attempt에 `verdict_assigned`가 없다는 것이 끝나지 않았다는 표시다.**
+
+병렬 실행에서도 규칙은 같다. 처리는 task의 state로 결정되며, 몇 개가 동시에 돌고 있었는지는 재개 판단에 들어가지 않는다. 어느 run에도 속하지 않는 워크트리는 `doctor`가 정리한다.
 
 ---
 

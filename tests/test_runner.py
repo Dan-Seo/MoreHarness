@@ -1,11 +1,13 @@
 """sequential runner — 한 task 의 attempt 실행과 DAG 완주.
 
-M1 완료 기준 다섯 가지를 여기서 증명한다 (docs/12).
+M1 완료 기준 다섯 가지와 M2 완료 기준 두 가지를 여기서 증명한다 (docs/12).
 """
 
 import re
+import subprocess
 import sys
 
+import pytest
 import yaml
 from conftest import git
 
@@ -18,8 +20,10 @@ from harness.adapters.base import (
 )
 from harness.config import load
 from harness.dag import Dag, load_tasks
+from harness.errors import HarnessError
 from harness.events import EventType
 from harness.exec.runner import run_dag
+from harness.exec.workspace import integration_branch
 from harness.models import State, Verdict
 
 PYTHON = re.escape(sys.executable)
@@ -91,7 +95,7 @@ def _json(value):
     return json.dumps(value, ensure_ascii=False)
 
 
-def configure(repo, scenario=None, **extra):
+def configure(repo, scenario=None, profile="safe", **extra):
     """docs/04 — mock 은 시나리오 **파일**로 결과를 지정한다."""
     adapter = {"type": "mock"}
     if scenario is not None:
@@ -101,7 +105,7 @@ def configure(repo, scenario=None, **extra):
 
     data = {
         "version": 1,
-        "defaults": {"adapter": "mock", "profile": "safe", "max_parallel": 1},
+        "defaults": {"adapter": "mock", "profile": profile, "max_parallel": 1},
         "adapters": {"mock": adapter},
         "command_policy": {
             "default": "require_approval",
@@ -132,14 +136,30 @@ def write_task(repo, task_id, **fields):
 
 
 def commit(repo):
+    """커밋할 것이 없어도 넘어간다. 한 테스트에서 두 번 부를 수 있어야 한다."""
     git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", "seed tasks")
+    subprocess.run(["git", "commit", "-q", "-m", "seed tasks"], cwd=repo, capture_output=True)
 
 
-def go(repo, config=None, adapter=None):
-    commit(repo)
+def go(repo, config=None, adapter=None, resume=False):
+    """워크스페이스는 저장소 밖이어야 하므로 scratch 를 tmp_path 아래로 준다."""
+    if not resume:
+        commit(repo)
     config = config or load(repo)
-    return run_dag(repo, config, Dag(load_tasks(repo)), adapter=adapter)
+    return run_dag(
+        repo,
+        config,
+        Dag(load_tasks(repo)),
+        adapter=adapter,
+        run_id="run-1",
+        resume=resume,
+        scratch=repo.parent / "scratch",
+    )
+
+
+def out(repo, *args):
+    result = subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True)
+    return result.stdout.strip()
 
 
 def task_of(store, task_id):
@@ -502,17 +522,13 @@ def test_diff_is_attributed_to_the_task_that_made_it(repo):
     assert "a.py" not in output
 
 
-def test_m1_runs_the_safe_profile_only(repo):
-    """M2 가 worktree 프로파일을 만든다. 그전까지는 제공하지 못하는 것을 제공한다고 하지 않는다."""
-    import pytest
-
-    from harness.errors import HarnessError
-
-    config = configure(repo, defaults={"adapter": "mock", "profile": "worktree"})
+def test_a_profile_the_harness_cannot_provide_is_refused(repo):
+    """docs/05 — container 는 M8 이다. 제공하지 못하는 격리를 제공한다고 말하지 않는다."""
+    config = configure(repo, defaults={"adapter": "mock", "profile": "container"})
     write_task(repo, "T-001", kind="analysis")
     commit(repo)
 
-    with pytest.raises(HarnessError, match="worktree"):
+    with pytest.raises(HarnessError, match="container"):
         run_dag(repo, config, Dag(load_tasks(repo)))
 
 
@@ -544,3 +560,278 @@ def test_a_three_task_dag_runs_to_completion_on_generic_cli(repo):
 
     assert [task_of(store, t).verdict for t in ("T-001", "T-002", "T-003")] == [Verdict.VERIFIED] * 3
     assert (repo / "T-003.py").is_file()
+
+
+# --------------------------------------------------------------------------- worktree 프로파일
+
+
+class Watcher(ScriptedAdapter):
+    """워크스페이스에 무엇이 보였는지 기록한다. 통합이 실제로 작동하는지 보려면 필요하다."""
+
+    def __init__(self, steps, watch):
+        super().__init__(steps)
+        self.watch = watch
+        self.seen = {}
+
+    def execute(self, request):
+        self.seen[request.task_id] = (request.workspace / self.watch).is_file()
+        return super().execute(request)
+
+
+def chain(repo, count=3):
+    for index in range(1, count + 1):
+        task_id = f"T-00{index}"
+        depends = [f"T-00{index - 1}"] if index > 1 else []
+        write_task(repo, task_id, depends_on=depends)
+
+
+def test_a_three_task_dag_runs_to_completion_in_worktrees(repo):
+    """M2 — worktree 프로파일에서도 DAG 를 완주한다."""
+    config = configure(
+        repo,
+        profile="worktree",
+        scenario={
+            "tasks": {
+                "T-001": {"files": {"a.py": "1\n"}},
+                "T-002": {"files": {"b.py": "2\n"}},
+                "T-003": {"files": {"c.py": "3\n"}},
+            }
+        },
+    )
+    chain(repo)
+
+    store = go(repo, config)
+    assert [t.state for t in store.state.tasks.values()] == [State.DONE] * 3
+
+
+def test_the_agent_never_works_in_the_repository(repo):
+    """docs/05 — worktree 프로파일의 cwd 는 저장소 밖이다."""
+    config = configure(repo, profile="worktree")
+    write_task(repo, "T-001")
+    adapter = ScriptedAdapter([{"files": {"a.py": "1\n"}}])
+
+    go(repo, config, adapter)
+    assert adapter.requests[0].workspace != repo
+    assert repo not in adapter.requests[0].workspace.parents
+
+
+def test_a_downstream_task_sees_what_upstream_made(repo):
+    """docs/05 — 워크트리는 통합 브랜치의 tip 에서 분기한다. 그래야 depends_on 이 의미를 갖는다."""
+    config = configure(repo, profile="worktree")
+    chain(repo, count=2)
+    adapter = Watcher([{"files": {"a.py": "1\n"}}, {"files": {"b.py": "2\n"}}], watch="a.py")
+
+    go(repo, config, adapter)
+    assert adapter.seen == {"T-001": False, "T-002": True}
+
+
+def test_the_user_branch_is_untouched_by_a_run(repo):
+    """docs/05 — 사용자 브랜치로 옮기는 것은 ship 의 일이다."""
+    config = configure(repo, profile="worktree")
+    write_task(repo, "T-001")
+    adapter = ScriptedAdapter([{"files": {"a.py": "1\n"}}])
+    commit(repo)
+    head = out(repo, "rev-parse", "HEAD")
+
+
+    go(repo, config, adapter)
+
+    assert out(repo, "rev-parse", "HEAD") == head
+    assert out(repo, "rev-parse", "--abbrev-ref", "HEAD") == "main"
+    assert not (repo / "a.py").exists()
+
+
+def test_verified_work_lands_on_the_integration_branch(repo):
+    config = configure(repo, profile="worktree")
+    write_task(repo, "T-001")
+    adapter = ScriptedAdapter([{"files": {"a.py": "1\n"}}])
+
+    go(repo, config, adapter)
+    assert out(repo, "show", f"{integration_branch('run-1')}:a.py") == "1"
+
+
+def test_a_finished_worktree_is_removed(repo):
+    config = configure(repo, profile="worktree")
+    write_task(repo, "T-001")
+    adapter = ScriptedAdapter([{"files": {"a.py": "1\n"}}])
+
+    go(repo, config, adapter)
+    assert not adapter.requests[0].workspace.exists()
+
+
+def test_a_worktree_is_kept_when_the_task_did_not_finish(repo):
+    """docs/05 — 실패한 워크트리는 사람이 조사할 수 있게 남긴다."""
+    config = configure(repo, profile="worktree")
+    write_task(repo, "T-001", acceptance=[exits(1, expect_fail_before=True)])
+    adapter = ScriptedAdapter([{"files": {"a.py": "1\n"}}])
+
+    store = go(repo, config, adapter)
+    assert task_of(store, "T-001").verdict is Verdict.REJECTED
+    assert adapter.requests[-1].workspace.is_dir()
+
+
+# --------------------------------------------------------------------------- 경로 스코프 (M2 완료 기준 ①)
+
+
+def test_a_change_outside_allowed_paths_is_rejected(repo):
+    """M2 완료 기준 ① — 경로 위반이 자동으로 rejected 가 된다."""
+    config = configure(repo, profile="worktree")
+    write_task(repo, "T-001", allowed_paths=["src/**"])
+    adapter = ScriptedAdapter([{"files": {"elsewhere.py": "1\n"}}])
+
+    store = go(repo, config, adapter)
+    assert task_of(store, "T-001").verdict is Verdict.REJECTED
+    assert task_of(store, "T-001").reason == "path_violation"
+
+
+def test_a_path_violation_is_recorded_as_evidence(repo):
+    config = configure(repo, profile="worktree")
+    write_task(repo, "T-001", allowed_paths=["src/**"])
+    adapter = ScriptedAdapter([{"files": {"elsewhere.py": "1\n"}}])
+
+    store = go(repo, config, adapter)
+    violations = [
+        event.payload
+        for event in store.journal.read()
+        if event.type is EventType.PATH_VIOLATION
+    ]
+    assert violations[0] == {"paths": ["elsewhere.py"], "rule": "allowed_paths"}
+
+
+def test_a_change_inside_allowed_paths_is_verified(repo):
+    config = configure(repo, profile="worktree")
+    write_task(repo, "T-001", allowed_paths=["src/**"])
+    adapter = ScriptedAdapter([{"files": {"src/api.py": "1\n"}}])
+
+    store = go(repo, config, adapter)
+    assert task_of(store, "T-001").verdict is Verdict.VERIFIED
+
+
+def test_touching_the_control_plane_is_rejected(repo):
+    """docs/05 — `.harness/**` 는 전역 금지 목록이다. 하네스는 승인하지 않고 탐지한다."""
+    config = configure(repo, profile="worktree")
+    write_task(repo, "T-001")
+    adapter = ScriptedAdapter([{"files": {".harness/sneaky.yaml": "x\n"}}])
+
+    store = go(repo, config, adapter)
+    assert task_of(store, "T-001").reason == "path_violation"
+
+
+# --------------------------------------------------------------------------- 재개 (M2 완료 기준 ②)
+
+
+class ByTask(ScriptedAdapter):
+    """task_id 로 결과를 정하고, 지정한 task 에서 죽는다.
+
+    재개하면 호출 **순서**가 달라지므로 순서로 시나리오를 표현할 수 없다.
+    """
+
+    def __init__(self, by_task, dies_on=None):
+        super().__init__([{}])
+        self.by_task = by_task
+        self.dies_on = dies_on
+
+    def execute(self, request):
+        if request.task_id == self.dies_on:
+            raise RuntimeError("강제 종료")
+        self.steps = [self.by_task.get(request.task_id, {})]
+        return super().execute(request)
+
+
+FILES = {
+    "T-001": {"files": {"a.py": "1\n"}},
+    "T-002": {"files": {"b.py": "2\n"}},
+}
+
+
+class Refuses(ScriptedAdapter):
+    """호출되면 안 되는 어댑터."""
+
+    def execute(self, request):
+        raise AssertionError(f"{request.task_id} 을(를) 다시 실행했다")
+
+
+def worktree_chain(repo, count=2):
+    config = configure(repo, profile="worktree")
+    chain(repo, count)
+    return config
+
+
+def test_resume_finishes_what_the_crash_interrupted(repo):
+    """M2 완료 기준 ② — 강제 종료 후 재개가 journal 로 복원된다."""
+    config = worktree_chain(repo)
+    with pytest.raises(RuntimeError):
+        go(repo, config, ByTask(FILES, dies_on="T-002"))
+
+    store = go(repo, config, ByTask(FILES), resume=True)
+    assert [t.state for t in store.state.tasks.values()] == [State.DONE, State.DONE]
+
+
+def test_resume_does_not_rerun_a_finished_task(repo):
+    """docs/10 — done 은 재실행하지 않는다."""
+    config = worktree_chain(repo, count=1)
+    go(repo, config, ScriptedAdapter([{"files": {"a.py": "1\n"}}]))
+
+    store = go(repo, config, Refuses([{}]), resume=True)
+    assert task_of(store, "T-001").state is State.DONE
+
+
+def test_resume_is_idempotent(repo):
+    """docs/10 — 같은 run-id 로 몇 번을 재개해도 결과가 같아야 한다."""
+    config = worktree_chain(repo)
+    with pytest.raises(RuntimeError):
+        go(repo, config, ByTask(FILES, dies_on="T-002"))
+
+    first = go(repo, config, ByTask(FILES), resume=True).state
+    second = go(repo, config, Refuses([{}]), resume=True).state
+    assert {k: v.to_dict() for k, v in first.tasks.items()} == {
+        k: v.to_dict() for k, v in second.tasks.items()
+    }
+
+
+def test_resume_restarts_a_dead_attempt_with_the_same_number(repo):
+    """docs/10 — 크래시는 재시도 한도를 소진시키지 않는다."""
+    config = worktree_chain(repo, count=1)
+    with pytest.raises(RuntimeError):
+        go(repo, config, ByTask(FILES, dies_on="T-001"))
+
+    store = go(repo, config, ByTask(FILES), resume=True)
+    assert task_of(store, "T-001").verdict_attempt == 1
+
+
+def test_resume_replays_verification_without_calling_the_agent_again(repo, monkeypatch):
+    """docs/10 — baseline 은 journal 에 있다. agent 를 다시 부를 이유가 없다."""
+    config = configure(repo, profile="worktree")
+    write_task(repo, "T-001", acceptance=[exits(0)])
+    adapter = ScriptedAdapter([{"files": {"a.py": "1\n"}}])
+
+    def crash(*_args, **_kwargs):
+        raise RuntimeError("검증 중 강제 종료")
+
+    monkeypatch.setattr("harness.exec.verify.run_post", crash)
+    with pytest.raises(RuntimeError):
+        go(repo, config, adapter)
+    monkeypatch.undo()
+
+    store = go(repo, config, adapter, resume=True)
+    assert task_of(store, "T-001").state is State.DONE
+    assert len(adapter.requests) == 1
+
+
+def test_resume_needs_an_existing_run(repo):
+    config = configure(repo, profile="worktree")
+    write_task(repo, "T-001")
+    commit(repo)
+
+    with pytest.raises(HarnessError, match="재개할 run"):
+        run_dag(repo, config, Dag(load_tasks(repo)), run_id="run-404", resume=True)
+
+
+def test_a_task_that_needs_a_human_is_not_resumed(repo):
+    """docs/10 — human_required 는 사람이 조치한 뒤의 일이다."""
+    config = configure(repo, profile="worktree")
+    write_task(repo, "T-001", preconditions=[{"kind": "file", "path": "no-such-file"}])
+    go(repo, config, ScriptedAdapter([{}]))
+
+    store = go(repo, config, Refuses([{}]), resume=True)
+    assert task_of(store, "T-001").state is State.HUMAN_REQUIRED

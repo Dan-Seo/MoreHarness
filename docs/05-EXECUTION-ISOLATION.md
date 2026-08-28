@@ -58,19 +58,38 @@
 ## 워크스페이스 생명주기
 
 ```
-1. 준비    <system temp>/harness/<run-id>/<task-id>/worktree 에 git worktree 생성
+1. 준비    <system temp>/harness/<repo-key>/<run-id>/<task-id>/worktree 에 git worktree 생성
            브랜치: harness/<run-id>/<task-id>
 2. outbox  ../outbox/attempt-<n>/ 생성. 워크트리 밖이다.
 3. 실행    어댑터가 cwd = worktree 로 프로세스 실행
 4. 관측    git diff 로 changed_files / created_files / diff_stat 계산
 5. 판정    경로 스코프 + AC post (06)
-6. 통합    verified 인 경우에만 머지 큐로
+6. 통합    증거와 handoff 게이트를 통과했으면 머지한다. 판정 순서는 06 이 canonical 이다.
 7. 정리    성공 시 워크트리 제거. 실패 시 보존하고 경로를 기록한다.
 ```
 
 실패한 워크트리를 남기는 것은 사람이 조사할 수 있게 하기 위해서다. 고아 워크트리는 `harness doctor`가 정리한다.
 
 **하네스는 `constitution.md`와 `config.yaml`을 항상 메인 저장소에서 읽는다.** 워크트리 안의 사본은 agent가 수정할 수 있는 저장소 콘텐츠이므로 control-plane 입력으로 쓰지 않는다.
+
+---
+
+## 통합 브랜치
+
+task마다 브랜치를 만들면 결과가 흩어진다. 모이는 곳이 없으면 downstream task가 upstream의 변경을 보지 못하고 `depends_on` 선언이 무의미해진다.
+
+```
+run 시작    HEAD 에서 harness/<run-id>/integration 을 만든다
+task 준비   통합 브랜치의 현재 tip 에서 harness/<run-id>/<task-id> 를 만든다
+task 종료   워크트리의 변경을 task 브랜치에 커밋한다
+통합        task 브랜치를 통합 브랜치로 머지한다
+```
+
+- **task 워크트리는 run 시작 시점의 HEAD가 아니라 통합 브랜치의 현재 tip에서 분기한다.** 앞선 task가 만든 것이 뒤 task의 워크스페이스에 실제로 있어야 하기 때문이다.
+- **사용자의 브랜치는 run 동안 한 번도 바뀌지 않는다.** run 결과를 버리려면 `harness/<run-id>/*`를 지우면 되고, 사용자 브랜치로 옮기는 것은 `ship`의 일이다. 08 참조.
+- **커밋은 하네스가 한다.** agent가 커밋했는지 여부는 판정에 영향을 주지 않는다. 판정의 입력은 커밋이 아니라 diff이며, 커밋은 머지를 가능하게 하는 수단일 뿐이다.
+- 머지 충돌은 verdict 없이 state `integration_conflict`다. 10 참조.
+- **`safe` 프로파일에는 통합이 없다.** 워크트리가 없으므로 변경이 이미 메인 워크트리에 있다.
 
 ---
 
@@ -87,6 +106,21 @@ effective_forbidden = task.forbidden_paths ∪ config.forbidden_paths
 - `effective_forbidden` 안의 경로가 있으면 → `path_violation` 이벤트 → verdict `rejected`
 
 glob 매칭은 저장소 루트 기준 POSIX 경로로 정규화한 뒤 수행한다. 심볼릭 링크는 따라가지 않고 링크 자체의 경로로 판정한다.
+
+### glob 방언
+
+gitignore 계열이다.
+
+| 패턴 | 매칭 |
+|---|---|
+| `*` | `/`를 넘지 않는 0글자 이상 |
+| `?` | `/`가 아닌 한 글자 |
+| `**` | 0개 이상의 경로 세그먼트. `src/api/**`는 `src/api` 자신과 그 아래 전부를 덮는다 |
+| 그 밖 | 리터럴 |
+
+- 패턴은 항상 저장소 루트 기준이다. `*.py`는 루트의 `.py` 파일만 가리키고 하위 디렉토리는 가리키지 않는다.
+- **`allowed_paths`를 선언하지 않으면 허용 범위에 제한이 없다.** 이때도 `effective_forbidden`은 그대로 적용된다. task마다 경로를 선언하게 만드는 것은 `analyze`의 일이지 판정의 일이 아니다. 08 참조.
+- 매칭은 경로 문자열만 본다. 그 파일이 지금 실재하는지는 보지 않는다 — 삭제된 경로도 판정 대상이다.
 
 ---
 
@@ -111,6 +145,16 @@ ready_set = { t | t.depends_on 이 전부 verified }
 ### 통합
 
 - **통합은 항상 직렬이다.** 병렬화 대상이 아니다.
-- verdict `verified`인 task만 머지 큐를 통과한다.
+- 증거 조건과 handoff 게이트를 통과한 task가 머지 큐에 들어간다. **머지가 성공해야 verdict `verified`가 기록된다.**
 - 머지 충돌 시 verdict 없이 state `integration_conflict`로 가고, replan 또는 사람에게 넘어간다.
 - journal writer는 여전히 오케스트레이터 프로세스 하나뿐이다. 03 참조.
+
+---
+
+## 05가 소유하는 config 키
+
+```yaml
+forbidden_paths: [".harness/**"]   # 전역 금지 목록. task 의 forbidden_paths 와 합집합이다.
+```
+
+**`.harness/**`는 이 목록에서 뺄 수 없다.** 설정에서 지우더라도 하네스가 다시 넣는다. control-plane을 agent가 고칠 수 있게 만드는 설정은 존재하지 않아야 한다.

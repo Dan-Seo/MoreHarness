@@ -27,6 +27,9 @@ DEFAULT_AGENT_TIMEOUT_S = 1800
 DEFAULT_MAX_ATTEMPTS = 2
 DEFAULT_MAX_HANDOFF_REPAIRS = 1
 
+# docs/05 — control-plane 은 이 목록에서 뺄 수 없다. 설정에서 지워도 하네스가 다시 넣는다.
+ALWAYS_FORBIDDEN = (".harness/**",)
+
 
 @dataclass(frozen=True)
 class AdapterConfig:
@@ -48,6 +51,7 @@ class Config:
     max_attempts: int
     max_handoff_repairs: int
     blocked_signals: tuple[str, ...]
+    forbidden_paths: tuple[str, ...]  # docs/05 — 전역 금지 목록
     command_policy: Mapping[str, Any]  # 형태 검증은 policy 가 한다
     path: Path
 
@@ -112,6 +116,9 @@ def load(repo_root: Path | str) -> Config:
             data, "max_handoff_repairs", DEFAULT_MAX_HANDOFF_REPAIRS, minimum=0
         ),
         blocked_signals=_string_list(data, "blocked_signals"),
+        forbidden_paths=tuple(
+            dict.fromkeys((*ALWAYS_FORBIDDEN, *_string_list(data, "forbidden_paths")))
+        ),
         command_policy=data.get("command_policy") or {},
         path=path,
     )

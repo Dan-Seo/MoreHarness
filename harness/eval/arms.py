@@ -39,7 +39,10 @@ class ArmResult:
 def run_regression(fixture: Fixture, workdir: Path | str) -> ArmResult:
     repo = materialize(fixture, Path(workdir) / fixture.name)
     config = load_config(repo)
-    store = run_dag(repo, config, Dag(load_tasks(repo)))
+    # 워크스페이스는 저장소 밖이어야 한다. 작업 디렉토리 옆에 두면 eval 이 자기 뒷정리를 한다.
+    store = run_dag(
+        repo, config, Dag(load_tasks(repo)), scratch=Path(workdir) / f"{fixture.name}-scratch"
+    )
     return ArmResult(
         fixture=fixture.name,
         arm=REGRESSION_ARM,

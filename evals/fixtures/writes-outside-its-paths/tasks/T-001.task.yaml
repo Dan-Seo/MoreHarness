@@ -1,0 +1,10 @@
+id: T-001
+name: strays-outside
+kind: implementation
+allowed_paths:
+- src/**
+acceptance:
+- cmd:
+  - git
+  - status
+  - --porcelain

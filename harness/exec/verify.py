@@ -5,13 +5,15 @@
 이 모듈에는 agent 가 만든 것이 하나도 들어오지 않는다. AC 는 하네스가 직접 실행하고,
 diff 는 하네스가 직접 읽는다. agent 의 exit code 도 자기 보고도 판정의 입력이 아니다.
 
-**M1 의 범위는 docs/06 의 verified 조건 1과 3이다.** 조건 2(경로 스코프)는 M2 가,
-조건 4(리뷰 blocking finding)는 M5 가 이 자리에 더한다.
+**여기서 다루는 것은 docs/06 의 verified 조건 1·2·3이다.** 조건 4(리뷰 blocking
+finding)는 M5 가 이 자리에 더한다.
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -41,7 +43,7 @@ class AcObservation:
     classification: str
     timed_out: bool
     stderr_tail: str
-    decision: Decision
+    decision: Decision | None = None
 
     @property
     def green(self) -> bool:
@@ -55,6 +57,22 @@ class AcObservation:
             "classification": self.classification,
             "expect_fail_before": self.expect_fail_before,
         }
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> AcObservation:
+        """journal 의 `ac_baseline_executed` 에서 복원한다 (docs/10 의 재개).
+
+        차등 판정에 필요한 것은 분류와 선언뿐이다. 정책 판정과 stderr 는 이미 journal 에
+        기록되어 있으므로 여기서 다시 나르지 않는다.
+        """
+        return cls(
+            cmd=tuple(payload["cmd"]),
+            expect_fail_before=bool(payload["expect_fail_before"]),
+            exit_code=payload["exit_code"],
+            classification=payload["classification"],
+            timed_out=False,
+            stderr_tail="",
+        )
 
 
 @dataclass(frozen=True)
@@ -117,14 +135,26 @@ class DiffObservation:
         """앞선 관측에 이미 있던 변경을 뺀다.
 
         `safe` 프로파일에는 워크트리 분리가 없어서 한 저장소에 변경이 쌓인다. 그러면 diff 를
-        어느 task 에 귀속시킬지가 모호해지고 판정이 무의미해진다. M2 의 워크트리가
-        이 뺄셈을 필요 없게 만든다.
+        어느 task 에 귀속시킬지가 모호해지고 판정이 무의미해진다. `worktree` 프로파일은
+        task 마다 깨끗한 워크트리에서 시작하므로 뺄 것이 없다.
         """
         return DiffObservation(
             tuple(p for p in self.changed_files if p not in earlier.changed_files),
             tuple(p for p in self.created_files if p not in earlier.created_files),
             {k: max(0, v - earlier.diff_stat.get(k, 0)) for k, v in self.diff_stat.items()},
         )
+
+
+@dataclass(frozen=True)
+class PathViolation:
+    """허용 범위를 벗어난 변경. docs/05 — 판정은 사후이며 **탐지**이지 OS 강제가 아니다."""
+
+    rule: str  # allowed_paths | forbidden_paths
+    paths: tuple[str, ...]
+
+    def to_payload(self) -> dict[str, Any]:
+        """docs/03 — path_violation."""
+        return {"paths": list(self.paths), "rule": self.rule}
 
 
 @dataclass(frozen=True)
@@ -167,25 +197,57 @@ def run_post(
     return tuple(differentials)
 
 
-def observe_diff(cwd: Path | str) -> DiffObservation:
-    """작업 트리에서 하네스가 직접 읽은 변경. agent 의 보고를 쓰지 않는다."""
+def observe_diff(cwd: Path | str, exclude: Sequence[str] = ()) -> DiffObservation:
+    """작업 트리에서 하네스가 직접 읽은 변경. agent 의 보고를 쓰지 않는다.
+
+    `exclude` 는 **하네스 자신이 쓴 경로**다. `safe` 프로파일에서는 하네스와 agent 가
+    한 디렉토리를 쓰므로, 하네스가 남긴 journal 과 아티팩트를 task 의 변경으로 세면
+    모든 task 가 control-plane 을 건드린 것이 된다.
+    """
     status = git(["status", "--porcelain", "--untracked-files=all"], cwd=cwd)
     changed, created = [], []
     for line in status.stdout.splitlines():
         if not line.strip():
             continue
         code, path = line[:2], _status_path(line[3:])
+        if _any_match(path, exclude):
+            continue
         (created if code in ("??", "A ", "AM") else changed).append(path)
 
     return DiffObservation(tuple(changed), tuple(created), _numstat(cwd, len(created)))
+
+
+def matches(path: str, pattern: str) -> bool:
+    """docs/05 의 glob 방언. gitignore 계열이며 저장소 루트 기준이다."""
+    return _compiled(pattern).match(_normalize(path)) is not None
+
+
+def check_paths(
+    diff: DiffObservation,
+    allowed: Sequence[str],
+    forbidden: Sequence[str],
+) -> tuple[PathViolation, ...]:
+    """docs/05 의 경로 스코프 판정. `allowed` 가 비어 있으면 허용 범위에 제한이 없다."""
+    changed = (*diff.changed_files, *diff.created_files)
+
+    outside = tuple(p for p in changed if allowed and not _any_match(p, allowed))
+    banned = tuple(p for p in changed if _any_match(p, forbidden))
+
+    violations = []
+    if banned:
+        violations.append(PathViolation("forbidden_paths", banned))
+    if outside:
+        violations.append(PathViolation("allowed_paths", outside))
+    return tuple(violations)
 
 
 def judge(
     task: Task,
     diff: DiffObservation,
     differentials: Sequence[Differential],
+    violations: Sequence[PathViolation] = (),
 ) -> Evidence:
-    """docs/06 의 verified 조건. 통과해도 verdict 를 기록하지 않는다 — handoff 게이트가 남았다."""
+    """docs/06 의 verified 조건. 통과해도 verdict 를 기록하지 않는다 — terminal 이 남았다."""
     differentials = tuple(differentials)
     rejecting = [d for d in differentials if d.rejects]
 
@@ -197,6 +259,9 @@ def judge(
 
     if task.kind is TaskKind.READONLY and not diff.is_empty:
         return Evidence(diff, differentials, Verdict.REJECTED, "unexpected_diff")
+
+    if violations:
+        return Evidence(diff, differentials, Verdict.REJECTED, "path_violation")
 
     if rejecting:
         return Evidence(diff, differentials, Verdict.REJECTED, rejecting[0].outcome)
@@ -234,6 +299,46 @@ def _outcome(before: AcObservation, after: AcObservation) -> str:
         return "proven" if after.green else "unmet"
     # 이 task 가 만들지 않은 실패다. 판정에 영향을 주지 않는다.
     return "debt_closed" if after.green else "debt_kept"
+
+
+def _any_match(path: str, patterns: Sequence[str]) -> bool:
+    return any(matches(path, pattern) for pattern in patterns)
+
+
+def _normalize(path: str) -> str:
+    """저장소 루트 기준 POSIX 경로. 심볼릭 링크는 따라가지 않는다 (docs/05)."""
+    text = path.replace("\\", "/")
+    while text.startswith("./"):
+        text = text[2:]
+    return text.rstrip("/")
+
+
+@lru_cache(maxsize=256)
+def _compiled(pattern: str) -> re.Pattern[str]:
+    """glob 을 정규식으로 옮긴다. 방언 표는 docs/05 에 있다."""
+    text = _normalize(pattern)
+    out, index, size = ["^"], 0, len(text)
+    while index < size:
+        if text.startswith("**/", index):
+            out.append("(?:.*/)?")  # 0개 이상의 세그먼트
+            index += 3
+        elif text.startswith("/**", index) and index + 3 == size:
+            out.append("(?:/.*)?")  # 앞 경로 자신과 그 아래 전부
+            index += 3
+        elif text.startswith("**", index):
+            out.append(".*")
+            index += 2
+        elif text[index] == "*":
+            out.append("[^/]*")
+            index += 1
+        elif text[index] == "?":
+            out.append("[^/]")
+            index += 1
+        else:
+            out.append(re.escape(text[index]))
+            index += 1
+    out.append("$")
+    return re.compile("".join(out))
 
 
 def _status_path(raw: str) -> str:

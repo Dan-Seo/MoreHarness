@@ -1,4 +1,7 @@
-"""CLI — init·status·doctor (M0) 와 run (M1). (docs/00, docs/10, docs/12)"""
+"""CLI — init·status·doctor (M0), run (M1), run --resume 과 doctor 복구 (M2).
+
+docs/00, docs/10, docs/12.
+"""
 
 import json
 import pkgutil
@@ -8,6 +11,7 @@ import yaml
 
 import harness
 from harness.cli import REQUIRED_CONTROL_PLANE, main
+from harness.exec.workspace import repo_scratch
 from harness.config import load
 from harness.events import EventType
 from harness.models import RunState
@@ -357,14 +361,14 @@ def test_run_reports_a_nonzero_code_when_something_needs_a_human(repo, capsys):
 
 
 def test_run_refuses_a_profile_it_cannot_provide(repo, capsys):
-    """M2 가 worktree 격리를 만든다. 그전까지 제공한다고 말하지 않는다."""
+    """docs/05 — container 는 M8 이다. 제공한다고 말하지 않고 사유를 출력한다."""
     write_runnable_task(repo)
     config = yaml.safe_load((repo / ".harness" / "config.yaml").read_text(encoding="utf-8"))
-    config["defaults"]["profile"] = "worktree"
+    config["defaults"]["profile"] = "container"
     (repo / ".harness" / "config.yaml").write_text(yaml.safe_dump(config), encoding="utf-8")
 
     assert main(["run", "--repo", str(repo)]) != 0
-    assert "worktree" in capsys.readouterr().out
+    assert "container" in capsys.readouterr().out
 
 
 def test_run_reports_a_broken_task_definition_instead_of_crashing(repo, capsys):
@@ -374,3 +378,52 @@ def test_run_reports_a_broken_task_definition_instead_of_crashing(repo, capsys):
     )
     assert main(["run", "--repo", str(repo)]) != 0
     assert "T-404" in capsys.readouterr().out
+
+
+# --------------------------------------------------------------------------- 재개와 복구 (M2)
+
+
+def test_run_resume_reports_an_unknown_run(repo, capsys):
+    write_runnable_task(repo)
+    assert main(["run", "--repo", str(repo), "--resume", "run-404"]) != 0
+    assert "재개할 run" in capsys.readouterr().out
+
+
+def test_run_resume_picks_up_the_named_run(repo, capsys):
+    """docs/10 — 같은 run-id 로 다시 돌려도 결과가 같다."""
+    write_runnable_task(repo)
+    main(["run", "--repo", str(repo), "--run-id", "run-1"])
+    capsys.readouterr()
+
+    assert main(["run", "--repo", str(repo), "--resume", "run-1"]) == 0
+    assert "run-1" in capsys.readouterr().out
+
+
+def test_doctor_removes_an_orphan_worktree(repo, capsys):
+    """docs/10 — 어느 run 에도 속하지 않는 워크스페이스는 지운다."""
+    orphan = repo_scratch(repo) / "run-404" / "T-001" / "worktree"
+    orphan.mkdir(parents=True)
+
+    assert main(["doctor", "--repo", str(repo)]) != 0
+    assert "고아 워크트리" in capsys.readouterr().out
+    assert not orphan.parent.parent.exists()
+
+
+def test_doctor_keeps_the_workspace_of_a_run_it_knows(repo, capsys):
+    (repo / ".harness" / "runs" / "run-1").mkdir(parents=True)
+    workspace = repo_scratch(repo) / "run-1" / "T-001" / "worktree"
+    workspace.mkdir(parents=True)
+
+    main(["doctor", "--repo", str(repo)])
+    assert workspace.exists()
+
+
+def test_doctor_clears_the_outbox_of_a_finished_task(repo, capsys):
+    """docs/10 — 승격이 끝난 attempt 디렉토리는 남겨 둘 이유가 없다."""
+    write_runnable_task(repo)
+    main(["run", "--repo", str(repo), "--run-id", "run-1"])
+    outbox = repo_scratch(repo) / "run-1" / "T-001" / "outbox"
+    assert outbox.is_dir()
+
+    main(["doctor", "--repo", str(repo)])
+    assert not outbox.exists()

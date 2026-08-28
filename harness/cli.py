@@ -1,13 +1,15 @@
 """진입점.
 
 docs/02 — `sys.exit` 는 이 파일에만 존재한다. 다른 모듈은 예외를 올리거나 값을 반환한다.
-커맨드는 마일스톤마다 늘어난다 — M0 이 `init`·`status`·`doctor`, M1 이 `run` 이다 (docs/12).
+커맨드는 마일스톤마다 늘어난다 — M0 이 `init`·`status`·`doctor`, M1 이 `run`,
+M2 가 `run --resume` 이다 (docs/12).
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -22,7 +24,8 @@ from harness.errors import (
     NotARepositoryError,
 )
 from harness.exec.runner import run_dag
-from harness.git import is_repo, repo_root
+from harness.exec.workspace import repo_scratch
+from harness.git import git, is_repo, repo_root
 from harness.models import RunState, State
 from harness.store import Journal, Store, check_sequence, fold
 
@@ -119,6 +122,7 @@ def _build_parser() -> argparse.ArgumentParser:
     run = sub.add_parser("run", help="task DAG 를 실행한다")
     run.add_argument("--repo", help="저장소 루트 (기본: 현재 위치의 저장소)")
     run.add_argument("--run-id", help="run 디렉토리 이름 (기본: 시각으로 만든다)")
+    run.add_argument("--resume", metavar="RUN-ID", help="죽은 run 을 이어서 실행한다")
 
     status = sub.add_parser("status", help="현재 run 상태, open_debts, human_required")
     status.add_argument("--repo", help="저장소 루트 (기본: 현재 위치의 저장소)")
@@ -181,7 +185,7 @@ def _init(args: argparse.Namespace) -> int:
 
 
 def _run(args: argparse.Namespace) -> int:
-    """DAG 를 실행한다. 재개(`--resume`)는 M2 가 만든다.
+    """DAG 를 실행한다. `--resume` 은 같은 run-id 로 몇 번을 돌려도 결과가 같다 (docs/10).
 
     일부가 막혀도 run 자체는 정상 종료한다 (docs/10). 종료 코드는 사람이 볼 것이
     남았는지를 알린다 — 전부 done 이면 0 이다.
@@ -190,7 +194,13 @@ def _run(args: argparse.Namespace) -> int:
     try:
         config = load(repo)
         dag = Dag(load_tasks(repo))
-        store = run_dag(repo, config, dag, run_id=args.run_id)
+        store = run_dag(
+            repo,
+            config,
+            dag,
+            run_id=args.resume or args.run_id,
+            resume=bool(args.resume),
+        )
     except HarnessError as exc:
         print(f"실행할 수 없다: {exc}")
         return 1
@@ -286,6 +296,7 @@ def _doctor(args: argparse.Namespace) -> int:
     _check_adapters(report, repo, config)
     for run_id in _run_ids(repo):
         _check_run(report, repo / HARNESS_DIR / "runs" / run_id, run_id)
+    _check_workspaces(report, repo)
 
     for line in report.lines:
         print(line)
@@ -364,6 +375,57 @@ def _check_run(report: _Report, run_dir: Path, run_id: str) -> None:
 
     Store(run_dir).rebuild()  # journal 은 건드리지 않는다. state 는 캐시다.
     report.fixed(run_id, "state != fold(journal) — journal 기준으로 재구성했다")
+
+
+def _check_workspaces(report: _Report, repo: Path) -> None:
+    """docs/10 — 고아 워크트리와 미아 outbox.
+
+    scratch 는 저장소별로 나뉘어 있으므로 (docs/03 의 `<repo-key>`) 여기서 지우는 것은
+    이 저장소의 것뿐이다.
+    """
+    scratch = repo_scratch(repo)
+    known = set(_run_ids(repo))
+
+    orphans = []
+    if scratch.is_dir():
+        orphans = [d for d in sorted(scratch.iterdir()) if d.is_dir() and d.name not in known]
+    for directory in orphans:
+        _unregister_worktrees(repo, directory)
+        shutil.rmtree(directory, ignore_errors=True)
+
+    stray = _drop_finished_outboxes(repo, scratch, known)
+
+    # 고아는 크래시가 남긴 것이므로 지적한다. 끝난 task 의 outbox 를 치우는 것은
+    # 일상적인 청소이며 사람이 볼 것이 아니다.
+    if orphans:
+        report.fixed("고아 워크트리", f"어느 run 에도 속하지 않는 {len(orphans)}개를 지웠다")
+    if stray:
+        report.ok("미아 outbox", f"끝난 task 의 attempt 디렉토리 {stray}개를 지웠다")
+    elif not orphans:
+        report.ok("워크스페이스", f"{scratch} 에 정리할 것이 없다")
+
+
+def _drop_finished_outboxes(repo: Path, scratch: Path, known: set[str]) -> int:
+    """승격이 끝난 outbox 를 지운다. 끝나지 않은 task 의 것은 사람이 볼 수 있게 남긴다."""
+    dropped = 0
+    for run_id in known:
+        state = _read_snapshot(repo / HARNESS_DIR / "runs" / run_id / "state.json")
+        if state is None or state.finished_at is None:
+            continue
+        for task_id, task in state.tasks.items():
+            outbox = scratch / run_id / task_id / "outbox"
+            if task.state is State.DONE and outbox.is_dir():
+                shutil.rmtree(outbox, ignore_errors=True)
+                dropped += 1
+    return dropped
+
+
+def _unregister_worktrees(repo: Path, directory: Path) -> None:
+    """디렉토리만 지우면 git 이 유령 워크트리를 기억한다. 등록을 먼저 푼다."""
+    for worktree in directory.rglob("worktree"):
+        if worktree.is_dir():
+            git(["worktree", "remove", "--force", str(worktree)], cwd=repo)
+    git(["worktree", "prune"], cwd=repo)
 
 
 def _read_snapshot(path: Path) -> RunState | None:

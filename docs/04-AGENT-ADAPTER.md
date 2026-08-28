@@ -116,7 +116,7 @@ placeholder: `{workspace} {outbox} {prompt_file} {timeout_s} {task_id} {attempt}
 ## Outbox 규약
 
 ```
-<system temp>/harness/<run-id>/<task-id>/outbox/attempt-<n>/
+<system temp>/harness/<repo-key>/<run-id>/<task-id>/outbox/attempt-<n>/
   result.json        # claim
   handoff.json
   attachments/

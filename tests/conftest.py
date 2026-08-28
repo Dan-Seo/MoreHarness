@@ -1,8 +1,11 @@
+import shutil
 import subprocess
 import textwrap
 from pathlib import Path
 
 import pytest
+
+from harness.exec.workspace import repo_scratch
 
 DEFAULT_CONFIG = textwrap.dedent(
     """
@@ -67,7 +70,10 @@ def repo(tmp_path: Path) -> Path:
     (root / "README.md").write_text("seed\n", encoding="utf-8")
     git(root, "add", "-A")
     git(root, "commit", "-q", "-m", "seed")
-    return root
+    yield root
+
+    # 워크트리와 outbox 는 저장소 밖(시스템 temp)이므로 tmp_path 정리가 닿지 않는다.
+    shutil.rmtree(repo_scratch(root), ignore_errors=True)
 
 
 @pytest.fixture

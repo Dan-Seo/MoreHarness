@@ -318,13 +318,15 @@ state.json      fold(journal) 의 스냅샷              <- 파생 캐시
   tasks/T-###.task.yaml
   evals/fixtures/<case>/
 
-<system temp>/harness/<run-id>/<task-id>/
+<system temp>/harness/<repo-key>/<run-id>/<task-id>/
   worktree/                       # agent 의 cwd — 저장소 밖
   outbox/attempt-<n>/
     result.json                   # claim
     handoff.json
     attachments/
 ```
+
+`<repo-key>`는 저장소 절대 경로에서 만든 키다. run-id는 시각에서 만들어지므로 저장소가 다르면 값이 같을 수 있고, 그 위에 워크트리가 만들어지면 서로의 작업을 덮는다.
 
 **워크트리와 outbox는 둘 다 저장소 밖이다.** 워크트리를 `.harness/` 안에 두면 agent의 cwd가 control-plane 안이 되어 "`.harness/`는 agent 영역이 아니다"와 정면충돌한다.
 
@@ -353,4 +355,4 @@ adapters:                     # 최소 하나. type 이 필수이고
 
 - `defaults.adapter`가 `adapters`에 없으면 로드 실패다.
 - `profile: unsafe`는 `allow_unsafe: true` 없이 쓸 수 없다. 나머지 절반인 **CLI의 명시적 플래그**는 05가 canonical이다.
-- **모르는 최상위 키를 거부하지 않는다.** 뒤 마일스톤이 자기 키를 여기 더하며, 그 키의 canonical 정의는 그 기능을 소유한 문서에 있다 — `command_policy`·`ac_timeout_s`·`max_attempts`·`max_handoff_repairs`·`blocked_signals`·`risk_rules`는 06이다.
+- **모르는 최상위 키를 거부하지 않는다.** 뒤 마일스톤이 자기 키를 여기 더하며, 그 키의 canonical 정의는 그 기능을 소유한 문서에 있다 — `command_policy`·`ac_timeout_s`·`agent_timeout_s`·`max_attempts`·`max_handoff_repairs`·`blocked_signals`·`risk_rules`는 06이고, `forbidden_paths`는 05다.

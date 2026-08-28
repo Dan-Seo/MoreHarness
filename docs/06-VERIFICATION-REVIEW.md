@@ -170,7 +170,7 @@ outbox 의 raw claim / raw handoff 발견
 
 ---
 
-## handoff 게이트 — 구현 판정과 분리
+## terminal 단계 — handoff 게이트와 통합
 
 증거 조건 1~4를 통과했다는 이유만으로 즉시 `verified`를 기록하지 않는다. **`verified`는 terminal에서만 기록한다.** 순서는 고정이다.
 
@@ -179,10 +179,17 @@ outbox 의 raw claim / raw handoff 발견
    │  (아직 verdict 미기록)
    ▼
 required handoff gate
-   ├ outputs.required 가 비어 있음        → verdict = verified
-   ├ required handoff 가 유효             → verdict = verified (TaskOutput 병합 기록)
+   ├ outputs.required 가 비어 있음        → 통합으로
+   ├ required handoff 가 유효             → 통합으로 (TaskOutput 병합 기록)
    └ required handoff 누락 또는 invalid   → verdict 미기록, next_state = repairing
+   │
+   ▼
+통합  (워크트리를 쓰는 프로파일에 한한다. 브랜치 구조는 05)
+   ├ 머지 성공                            → verdict = verified
+   └ 머지 충돌                            → verdict 미기록, next_state = integration_conflict
 ```
+
+**`verified`가 기록되는 지점은 이 마지막 한 곳뿐이다.** 그래서 `verdict_assigned`가 attempt당 한 번이라는 03의 규칙이 유지된다. 머지를 verdict 뒤에 두면 충돌 시 같은 attempt에 두 번째 verdict를 기록해야 한다.
 
 `repairing`에서 하는 일:
 

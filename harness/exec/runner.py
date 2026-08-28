@@ -3,7 +3,7 @@
 docs/03 의 상태 기계와 docs/06 의 판정 순서를 그대로 따른다. 이 모듈은 순서를 지키고
 이벤트를 남길 뿐, 판정 자체는 하지 않는다 — 그것은 `verify` 와 `handoff` 의 몫이다.
 
-**M1 은 `safe` 프로파일만 실행한다.** 저장소 밖 워크트리는 M2 가 만든다. 제공하지 못하는
+`safe` 와 `worktree` 를 실행한다. `container` 와 `unsafe` 는 거부한다 — 제공하지 못하는
 격리를 제공한다고 말하지 않는다 (docs/05 의 표현 규약).
 
 쓰기 순서는 언제나 journal append + fsync → state 갱신이다. `store.append` 가 그 순서를
@@ -15,7 +15,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import tempfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -29,12 +28,19 @@ from harness.errors import HarnessError
 from harness.events import EventType
 from harness.exec import handoff as handoff_module
 from harness.exec import verify as verify_module
+from harness.exec.workspace import MergeResult, Workspace, Workspaces
 from harness.models import ExecutionProfile, State, Task, Verdict
 from harness.policy import CommandPolicy, PolicyVerdict, load_approvals
 from harness.probes import check_all
 from harness.store import Store
 
 STDERR_TAIL_CHARS = 2000
+
+# docs/05 — 나머지 프로파일은 거부한다. container 는 M8 이고, unsafe 는 아직 없다.
+SUPPORTED_PROFILES = (ExecutionProfile.SAFE, ExecutionProfile.WORKTREE)
+
+# agent 실행은 끝났고 verdict 는 없는 state. 워크트리가 남아 있으면 검증부터 재개한다 (docs/10).
+RESUMABLE = (State.EXECUTED, State.VERIFYING, State.REVIEWING, State.REPAIRING)
 
 # 자식 프로세스에 넘길 최소 환경변수. 화이트리스트이며, 여기 없는 것은 넘어가지 않는다.
 # 비밀 취급은 docs/09 가 canonical 이다.
@@ -78,19 +84,26 @@ def run_dag(
     *,
     adapter: Any = None,
     run_id: str | None = None,
+    resume: bool = False,
+    scratch: Path | str | None = None,
 ) -> Store:
-    """DAG 를 끝까지 실행하고 journal 을 가진 Store 를 돌려준다."""
+    """DAG 를 끝까지 실행하고 journal 을 가진 Store 를 돌려준다.
+
+    `resume` 이면 기존 run 의 journal 을 이어 쓴다. 무엇을 다시 하고 무엇을 건너뛸지는
+    state 가 결정하며, 그 표는 docs/10 이 canonical 이다.
+    """
     repo = Path(repo)
-    if config.default_profile is not ExecutionProfile.SAFE:
+    if config.default_profile not in SUPPORTED_PROFILES:
         raise HarnessError(
-            f"M1 은 safe 프로파일만 실행한다. {config.default_profile} 격리는 M2 가 만든다"
+            f"{config.default_profile} 프로파일은 아직 실행할 수 없다. "
+            "제공하지 못하는 격리를 제공한다고 말하지 않는다 (docs/05)"
         )
 
     policy = CommandPolicy.from_config(
         config.command_policy, load_approvals(repo / HARNESS_DIR / "approved_commands.yaml")
     )
-    store = Store(_run_dir(repo, run_id))
-    return Runner(repo, config, store, policy, adapter).run(dag)
+    store = Store(_run_dir(repo, run_id, resume))
+    return Runner(repo, config, store, policy, adapter, scratch).run(dag, resume=resume)
 
 
 class Runner:
@@ -101,6 +114,7 @@ class Runner:
         store: Store,
         policy: CommandPolicy,
         adapter: Any = None,
+        scratch: Path | str | None = None,
     ) -> None:
         self.repo = repo
         self.config = config
@@ -108,22 +122,25 @@ class Runner:
         self.policy = policy
         self._fixed_adapter = adapter
         self._adapters: dict[str, Any] = {}
-        self.scratch = Path(tempfile.gettempdir()) / "harness" / store.run_id
+        self.workspaces = Workspaces(repo, store.run_id, config.default_profile, scratch)
 
     # ----------------------------------------------------------------- 런 루프
 
-    def run(self, dag: Dag) -> Store:
-        self.store.append(
-            EventType.RUN_STARTED,
-            {
-                "manifest": {"task_ids": list(dag.order())},
-                "profile": str(ExecutionProfile.SAFE),
-                "adapter": self.config.default_adapter,
-                "max_parallel": self.config.max_parallel,
-            },
-        )
+    def run(self, dag: Dag, *, resume: bool = False) -> Store:
+        if resume:
+            verified, remaining = self._resume_sets(dag)
+        else:
+            self.store.append(
+                EventType.RUN_STARTED,
+                {
+                    "manifest": {"task_ids": list(dag.order())},
+                    "profile": str(self.config.default_profile),
+                    "adapter": self.config.default_adapter,
+                    "max_parallel": self.config.max_parallel,
+                },
+            )
+            verified, remaining = set(), set(dag.tasks)
 
-        remaining, verified = set(dag.tasks), set()
         while True:
             ready = dag.ready(verified, remaining)
             if not ready:
@@ -135,6 +152,23 @@ class Runner:
 
         self.store.append(EventType.RUN_FINISHED, self._summary())
         return self.store
+
+    def _resume_sets(self, dag: Dag) -> tuple[set[str], set[str]]:
+        """docs/10 의 재개 표. `done` 은 재실행하지 않고, 사람 손이 필요한 것은 건드리지 않는다."""
+        stalled = (State.HUMAN_REQUIRED, State.NEEDS_REPLAN, State.INTEGRATION_CONFLICT)
+        projections = self.store.state.tasks
+        verified = {
+            task_id
+            for task_id, projection in projections.items()
+            if projection.state is State.DONE
+        }
+        remaining = {
+            task_id
+            for task_id in dag.tasks
+            if task_id not in verified
+            and (task_id not in projections or projections[task_id].state not in stalled)
+        }
+        return verified, remaining
 
     def _summary(self) -> dict[str, Any]:
         """docs/10 — 무엇이 왜 막혔고 무엇이 끝났는지 적는다. run 은 정상 종료한다."""
@@ -153,8 +187,17 @@ class Runner:
         }
 
     def _run_task(self, task: Task) -> bool:
-        for attempt in range(1, self.config.max_attempts + 1):
-            outcome = self._attempt(task, attempt)
+        start, from_verification = self._resume_point(task)
+        profile = task.profile or self.config.default_profile
+
+        for attempt in range(start, self.config.max_attempts + 1):
+            workspace = (
+                self.workspaces.existing(task.id)
+                if from_verification
+                else self.workspaces.open(task.id, profile)
+            )
+            outcome = self._attempt(task, attempt, workspace, from_verification=from_verification)
+            from_verification = False
             next_state = self._next_state(outcome, attempt)
             self.store.append(
                 EventType.VERDICT_ASSIGNED,
@@ -167,9 +210,27 @@ class Runner:
                 task_id=task.id,
                 attempt=attempt,
             )
+            self.workspaces.close(workspace, keep=next_state is not State.DONE)
             if next_state is not State.READY:
                 return next_state is State.DONE
         return False
+
+    def _resume_point(self, task: Task) -> tuple[int, bool]:
+        """어느 attempt 부터, 어느 단계부터 다시 할지. docs/10 의 재개 표다.
+
+        **verdict 가 없는 attempt 는 끝나지 않은 attempt 다.** 크래시는 재시도 한도를
+        소진시키지 않으므로 같은 번호로 다시 시작한다.
+        """
+        projection = self.store.state.tasks.get(task.id)
+        if projection is None or projection.attempt == 0:
+            return 1, False
+        if projection.verdict_attempt == projection.attempt:
+            return projection.attempt + 1, False
+
+        resumable = (
+            projection.state in RESUMABLE and self.workspaces.existing(task.id) is not None
+        )
+        return projection.attempt, resumable
 
     def _next_state(self, outcome: AttemptOutcome, attempt: int) -> State:
         """docs/03 의 verdict → next_state 표. "시도 소진" 의 기준은 config 의 max_attempts 다."""
@@ -187,44 +248,36 @@ class Runner:
 
     # ----------------------------------------------------------------- attempt
 
-    def _attempt(self, task: Task, attempt: int) -> AttemptOutcome:
+    def _attempt(
+        self,
+        task: Task,
+        attempt: int,
+        workspace: Workspace,
+        *,
+        from_verification: bool = False,
+    ) -> AttemptOutcome:
         task_dir = self.store.run_dir / "tasks" / task.id
         task_dir.mkdir(parents=True, exist_ok=True)
-        prompt_path = self._write_prompt(task, task_dir)
+        cwd = workspace.path
 
-        self.store.append(
-            EventType.TASK_DISPATCHED,
-            {
-                "context_manifest_ref": None,  # 계층형 컨텍스트는 M4 다
-                "prompt_ref": str(prompt_path),
-                # risk 모듈이 없으면 선언값을 그대로 쓴다 (docs/02 의 옵션 경계)
-                "effective_risk": str(task.risk) if task.risk else None,
-            },
-            task_id=task.id,
-            attempt=attempt,
-        )
+        baseline = self._baseline_from_journal(task, attempt) if from_verification else None
+        if baseline is None:
+            before, baseline, outbox, stop = self._up_to_dispatch(task, attempt, workspace, task_dir)
+            if stop:
+                return stop
+        else:
+            # 재개다. 워크트리는 죽기 전 그대로이므로 뺄 것이 없다.
+            before = verify_module.DiffObservation((), (), {})
+            outbox = _outbox_artifacts(workspace.outbox(attempt))
 
-        stop = self._precheck(task, attempt)
-        if stop:
-            return stop
-
-        baseline, stop = self._baseline(task, attempt)
-        if stop:
-            return stop
-
-        before = verify_module.observe_diff(self.repo)
-        outbox = self.scratch / task.id / "outbox" / f"attempt-{attempt}"
-        result = self._dispatch(task, attempt, outbox, prompt_path.read_text(encoding="utf-8"))
-        if result.runtime_failure is not None:
-            return AttemptOutcome(Verdict.ERROR, str(result.runtime_failure))
-
-        claim = handoff_module.normalize(handoff_module.CLAIM, result.raw_claim_path, task_dir)
+        raw_claim, raw_handoff = outbox
+        claim = handoff_module.normalize(handoff_module.CLAIM, raw_claim, task_dir)
         self._record_artifact(claim, task, attempt)
-        handoff = handoff_module.normalize(handoff_module.HANDOFF, result.raw_handoff_path, task_dir)
+        handoff = handoff_module.normalize(handoff_module.HANDOFF, raw_handoff, task_dir)
         self._record_artifact(handoff, task, attempt)
 
         differentials = verify_module.run_post(
-            task, baseline, self.policy, self.repo, self.config.ac_timeout_s
+            task, baseline, self.policy, cwd, self.config.ac_timeout_s
         )
         for differential in differentials:
             self.store.append(
@@ -238,13 +291,85 @@ class Runner:
                     attempt,
                 )
 
-        diff = verify_module.observe_diff(self.repo).without(before)
-        evidence = verify_module.judge(task, diff, differentials)
+        diff = verify_module.observe_diff(cwd, self._harness_paths(cwd)).without(before)
+        violations = verify_module.check_paths(diff, task.allowed_paths, self._forbidden(task))
+        for violation in violations:
+            self.store.append(EventType.PATH_VIOLATION, violation.to_payload(), task.id, attempt)
+
+        evidence = verify_module.judge(task, diff, differentials, violations)
         if evidence.verdict is not None or evidence.next_state is not None:
             self._write_verification(task_dir, task, evidence, handoff)
             return AttemptOutcome(evidence.verdict, evidence.reason, evidence.next_state)
 
-        return self._handoff_gate(task, attempt, evidence, handoff, task_dir)
+        return self._terminal(task, attempt, evidence, handoff, task_dir, workspace)
+
+    def _up_to_dispatch(self, task: Task, attempt: int, workspace: Workspace, task_dir: Path):
+        """프롬프트 → precheck → baseline → agent. 중간에 멈추면 그 사유를 돌려준다."""
+        prompt_path = self._write_prompt(task, task_dir, workspace)
+        self.store.append(
+            EventType.TASK_DISPATCHED,
+            {
+                "context_manifest_ref": None,  # 계층형 컨텍스트는 M4 다
+                "prompt_ref": str(prompt_path),
+                # risk 모듈이 없으면 선언값을 그대로 쓴다 (docs/02 의 옵션 경계)
+                "effective_risk": str(task.risk) if task.risk else None,
+            },
+            task_id=task.id,
+            attempt=attempt,
+        )
+
+        empty = verify_module.DiffObservation((), (), {})
+        nothing = (None, None)  # 아직 agent 가 아무것도 내놓지 않았다
+
+        stop = self._precheck(task, attempt)
+        if stop:
+            return empty, None, nothing, stop
+
+        baseline, stop = self._baseline(task, attempt, workspace.path)
+        if stop:
+            return empty, baseline, nothing, stop
+
+        before = verify_module.observe_diff(workspace.path, self._harness_paths(workspace.path))
+        result = self._dispatch(task, attempt, workspace, prompt_path.read_text(encoding="utf-8"))
+        outbox = (result.raw_claim_path, result.raw_handoff_path)
+        if result.runtime_failure is not None:
+            failure = AttemptOutcome(Verdict.ERROR, str(result.runtime_failure))
+            return before, baseline, outbox, failure
+        return before, baseline, outbox, None
+
+    def _harness_paths(self, cwd: Path) -> tuple[str, ...]:
+        """하네스가 자기 run 디렉토리에 쓴 것은 task 의 변경이 아니다.
+
+        워크트리 프로파일에서는 run 디렉토리가 워크스페이스 밖이므로 뺄 것이 없다.
+        """
+        try:
+            relative = self.store.run_dir.relative_to(cwd)
+        except ValueError:
+            return ()
+        return (f"{relative.as_posix()}/**",)
+
+    def _forbidden(self, task: Task) -> tuple[str, ...]:
+        """docs/05 — effective_forbidden = task.forbidden_paths ∪ config.forbidden_paths."""
+        return (*self.config.forbidden_paths, *task.forbidden_paths)
+
+    def _baseline_from_journal(self, task: Task, attempt: int) -> verify_module.Baseline | None:
+        """docs/10 — 죽은 attempt 의 baseline 은 journal 이 갖고 있다.
+
+        복원되면 agent 를 다시 부르지 않고 검증부터 재개한다. 하나라도 모자라면 복원하지
+        않는다 — 반쪽 baseline 으로 차등 판정을 하면 판정이 거짓이 된다.
+        """
+        payloads = [
+            event.payload
+            for event in self.store.journal.read()
+            if event.type is EventType.AC_BASELINE_EXECUTED
+            and event.task_id == task.id
+            and event.attempt == attempt
+        ]
+        if len(payloads) != len(task.acceptance):
+            return None
+        return verify_module.Baseline(
+            tuple(verify_module.AcObservation.from_payload(payload) for payload in payloads)
+        )
 
     # ----------------------------------------------------------------- 단계
 
@@ -274,9 +399,9 @@ class Runner:
             return AttemptOutcome(Verdict.BLOCKED, report.detail)
         return AttemptOutcome(Verdict.ERROR, report.detail)
 
-    def _baseline(self, task: Task, attempt: int):
+    def _baseline(self, task: Task, attempt: int, cwd: Path):
         baseline = verify_module.run_baseline(
-            task, self.policy, self.repo, self.config.ac_timeout_s
+            task, self.policy, cwd, self.config.ac_timeout_s
         )
         for observed in baseline.observations:
             self.store.append(
@@ -306,15 +431,23 @@ class Runner:
             )
         return baseline, None
 
-    def _dispatch(self, task: Task, attempt: int, outbox: Path, prompt: str) -> AgentResult:
+    def _dispatch(
+        self,
+        task: Task,
+        attempt: int,
+        workspace: Workspace,
+        prompt: str,
+        repair: int = 0,
+    ) -> AgentResult:
+        outbox = workspace.outbox(attempt, repair)
         outbox.mkdir(parents=True, exist_ok=True)
         adapter = self._adapter_for(task)
         request = AgentRequest(
             task_id=task.id,
             prompt=prompt,
-            workspace=self.repo,
+            workspace=workspace.path,
             outbox=outbox,
-            profile=ExecutionProfile.SAFE,
+            profile=task.profile or self.config.default_profile,
             allowed_tools=None,
             timeout_s=self.config.agent_timeout_s,
             env=self._env(task, outbox, attempt),
@@ -323,7 +456,7 @@ class Runner:
 
         self.store.append(
             EventType.AGENT_STARTED,
-            {"adapter": adapter.name, "workspace": str(self.repo), "outbox": str(outbox)},
+            {"adapter": adapter.name, "workspace": str(workspace.path), "outbox": str(outbox)},
             task.id,
             attempt,
         )
@@ -349,15 +482,20 @@ class Runner:
             )
         return result
 
-    def _handoff_gate(
+    def _terminal(
         self,
         task: Task,
         attempt: int,
         evidence: verify_module.Evidence,
         handoff: handoff_module.Artifact,
         task_dir: Path,
+        workspace: Workspace,
     ) -> AttemptOutcome:
-        """docs/06 — 구현은 이미 증거로 검증되었다. 코드는 그대로 두고 handoff 만 다시 만든다."""
+        """docs/06 의 terminal 순서 — handoff 게이트 → 통합 → `verified`.
+
+        구현은 이미 증거로 검증되었다. 코드는 그대로 두고 handoff 만 다시 만든다.
+        `verified` 가 기록되는 지점은 이 함수의 마지막 한 곳뿐이다.
+        """
         gate = handoff_module.gate(task, handoff)
         repairs = 0
 
@@ -371,15 +509,19 @@ class Runner:
             self.store.append(
                 EventType.FIXER_DISPATCHED, {"wave": repairs, "scope": "handoff"}, task.id, attempt
             )
-            outbox = self.scratch / task.id / "outbox" / f"attempt-{attempt}-repair-{repairs}"
-            result = self._dispatch(task, attempt, outbox, _repair_prompt(task, gate))
+            result = self._dispatch(
+                task, attempt, workspace, _repair_prompt(task, gate), repair=repairs
+            )
             handoff = handoff_module.normalize(
                 handoff_module.HANDOFF, result.raw_handoff_path, task_dir
             )
             self._record_artifact(handoff, task, attempt)
             gate = handoff_module.gate(task, handoff)
 
-        self._write_verification(task_dir, task, evidence, handoff)
+        merge = self.workspaces.integrate(workspace)
+        self._write_verification(task_dir, task, evidence, handoff, merge)
+        if not merge.ok:
+            return AttemptOutcome(None, "integration_conflict", State.INTEGRATION_CONFLICT)
         return AttemptOutcome(Verdict.VERIFIED)
 
     # ----------------------------------------------------------------- 기록
@@ -412,25 +554,30 @@ class Runner:
         task: Task,
         evidence: verify_module.Evidence,
         handoff: handoff_module.Artifact,
+        merge: MergeResult | None = None,
     ) -> None:
         record = {
             "task_id": task.id,
             "output": handoff_module.merge_output(task, evidence.diff.to_output(), handoff),
             "differentials": [d.post_payload() for d in evidence.differentials],
         }
+        if merge is not None:
+            # docs/10 의 런북이 충돌 파일 목록을 여기서 찾는다.
+            record["integration"] = {"ok": merge.ok, "conflicts": list(merge.conflicts)}
         (task_dir / "verification.json").write_text(
             json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
 
-    def _write_prompt(self, task: Task, task_dir: Path) -> Path:
-        """M1 의 프롬프트는 constitution + task 계약이다.
+    def _write_prompt(self, task: Task, task_dir: Path, workspace: Workspace) -> Path:
+        """프롬프트는 constitution + task 계약이다.
 
         계층형 컨텍스트 선택과 예산은 M4 다. 그전까지는 docs/02 가 정한 대로 task 계약에
-        명시된 파일만 넣는다. constitution 은 **항상 메인 저장소에서** 읽는다 (docs/03).
+        명시된 파일만 넣는다. constitution 은 **항상 메인 저장소에서** 읽고, 저장소
+        콘텐츠는 **워크스페이스에서** 읽는다 — upstream 이 만든 것이 거기 있다 (docs/05).
         """
         sections = [_read(self.repo / HARNESS_DIR / "constitution.md"), _task_card(task)]
         for relative in task.context.get("files") or ():
-            body = _read(self.repo / relative)
+            body = _read(workspace.path / relative)
             if body:
                 sections.append(f"## {relative}\n\n```\n{body}\n```")
         sections.append(
@@ -461,8 +608,14 @@ class Runner:
         return env
 
 
-def _run_dir(repo: Path, run_id: str | None) -> Path:
+def _run_dir(repo: Path, run_id: str | None, resume: bool = False) -> Path:
     runs = repo / HARNESS_DIR / "runs"
+    if resume:
+        if not run_id:
+            raise HarnessError("재개하려면 run-id 가 필요하다")
+        if not (runs / run_id / "journal.jsonl").is_file():
+            raise HarnessError(f"재개할 run 이 없다: {runs / run_id}")
+        return runs / run_id
     if run_id:
         return runs / run_id
     stamp = new_run_id()
@@ -471,6 +624,12 @@ def _run_dir(repo: Path, run_id: str | None) -> Path:
         suffix += 1
         candidate = runs / f"{stamp}-{suffix}"
     return candidate
+
+
+def _outbox_artifacts(outbox: Path) -> tuple[Path | None, Path | None]:
+    """docs/04 의 outbox 규약 — 파일 이름이 고정이므로 재개할 때 어댑터 없이 찾을 수 있다."""
+    claim, handoff = outbox / "result.json", outbox / "handoff.json"
+    return (claim if claim.is_file() else None, handoff if handoff.is_file() else None)
 
 
 def _denied(decision) -> bool:

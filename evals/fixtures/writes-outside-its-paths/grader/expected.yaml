@@ -1,0 +1,6 @@
+tasks:
+  T-001:
+    verdict: rejected
+    state: needs_replan
+open_debts: []
+human_required: []

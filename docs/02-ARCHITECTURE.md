@@ -28,7 +28,7 @@ harness/
     codex_cli.py      # 선택적 능력 추가
 
   exec/
-    workspace.py      # 워크스페이스·outbox 생성과 정리
+    workspace.py      # 워크트리·outbox 생성과 정리, 통합 브랜치 머지
     runner.py         # 한 task 의 attempt 실행 (sequential)
     scheduler.py      # 병렬 스케줄링, path-conflict 직렬화, 머지 큐
     verify.py         # AC 실행, diff 판정, 경로 스코프, verdict 산출
