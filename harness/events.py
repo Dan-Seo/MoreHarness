@@ -32,6 +32,7 @@ class EventType(StrEnum):
     AC_POST_EXECUTED = "ac_post_executed"
     DEBT_OPENED = "debt_opened"
     DEBT_CLOSED = "debt_closed"
+    DEBT_WAIVED = "debt_waived"
     PATH_VIOLATION = "path_violation"
     RISK_ESCALATED = "risk_escalated"
     REVIEW_FINDING = "review_finding"
@@ -64,6 +65,7 @@ REQUIRED_PAYLOAD_KEYS: dict[EventType, frozenset[str]] = {
     EventType.AC_POST_EXECUTED: frozenset({"cmd", "exit_code", "classification", "differential"}),
     EventType.DEBT_OPENED: frozenset({"debt_id", "cmd", "origin_task"}),
     EventType.DEBT_CLOSED: frozenset({"debt_id", "closed_by"}),
+    EventType.DEBT_WAIVED: frozenset({"debt_id", "approver", "reason"}),
     EventType.PATH_VIOLATION: frozenset({"paths", "rule"}),
     EventType.RISK_ESCALATED: frozenset({"declared", "path_floor", "diff_floor", "effective"}),
     EventType.REVIEW_FINDING: frozenset(

@@ -69,6 +69,10 @@ spec_hash: "sha256:..."       # 참조한 spec 의 해시. 드리프트 검출�
 
 문자열이 아니라 리스트다. 기본 실행이 `shell=False`이므로 셸 메타문자, 명령 치환, 파이프, 리다이렉션이 해석되지 않는다. 셸이 반드시 필요하면 `shell: true`를 명시해야 하고, 그 선언 자체가 Command Policy에서 자동으로 `require_approval`로 승격된다. 06 참조.
 
+### `spec_hash`
+
+`satisfies`의 R-###를 담은 spec 파일 **바이트의 sha256**이며 `sha256:` 접두사를 붙인다. `harness tasks`가 찍고, analyze와 converge가 현재 spec과 대조해 드리프트를 잡는다 (08).
+
 ### `kind`가 결정하는 것
 
 | `kind` | diff 기대 | 용도 |
@@ -279,6 +283,7 @@ state.json      fold(journal) 의 스냅샷              <- 파생 캐시
 | `ac_post_executed` | agent 실행 후 | `cmd`, `exit_code`, `classification`, `differential` |
 | `debt_opened` | 사전 실패 AC 발견 | `debt_id`, `cmd`, `origin_task` |
 | `debt_closed` | 해당 AC 가 green 이 됨 | `debt_id`, `closed_by` |
+| `debt_waived` | ship 이 waiver 를 인정 | `debt_id`, `approver`, `reason` |
 | `path_violation` | diff 가 허용 범위를 벗어남 | `paths`, `rule` |
 | `risk_escalated` | effective_risk 상향 | `declared`, `path_floor`, `diff_floor`, `effective` |
 | `review_finding` | 리뷰어 지적 | `wave`, `reviewer`, `severity`, `rule`, `file`, `line`, `blocking` |
@@ -301,6 +306,9 @@ state.json      fold(journal) 의 스냅샷              <- 파생 캐시
     config.yaml                   # 하네스가 항상 메인 저장소에서 읽는다
     constitution.md
     approved_commands.yaml
+    waivers.yaml                  # ship 의 debt 면제 — 08
+    analyze.json  analyze-report.md          # analyze 의 게이트 기록과 보고 — 08
+    converge.json  coverage.md  ship-report.md   # converge·ship 의 산출 — 08
     knowledge/K-###.yaml
     runs/<run-id>/
       manifest.json
@@ -355,4 +363,4 @@ adapters:                     # 최소 하나. type 이 필수이고
 
 - `defaults.adapter`가 `adapters`에 없으면 로드 실패다.
 - `profile: unsafe`는 `allow_unsafe: true` 없이 쓸 수 없다. 나머지 절반인 **CLI의 명시적 플래그**는 05가 canonical이다.
-- **모르는 최상위 키를 거부하지 않는다.** 뒤 마일스톤이 자기 키를 여기 더하며, 그 키의 canonical 정의는 그 기능을 소유한 문서에 있다 — `command_policy`·`ac_timeout_s`·`agent_timeout_s`·`max_attempts`·`max_handoff_repairs`·`blocked_signals`·`risk_rules`·`max_review_waves`·`budget`은 06이고, `forbidden_paths`는 05, `context`는 07이다.
+- **모르는 최상위 키를 거부하지 않는다.** 뒤 마일스톤이 자기 키를 여기 더하며, 그 키의 canonical 정의는 그 기능을 소유한 문서에 있다 — `command_policy`·`ac_timeout_s`·`agent_timeout_s`·`max_attempts`·`max_handoff_repairs`·`blocked_signals`·`risk_rules`·`max_review_waves`·`budget`은 06이고, `forbidden_paths`는 05, `context`는 07, `health_commands`는 08이다.

@@ -1,0 +1,9 @@
+# specs/{slug}/spec.yaml — 계약은 docs/03 이 canonical 이다.
+# R-### 는 유일하며 재사용하지 않는다. 요구사항을 지우면 번호는 결번으로 남긴다.
+slug: {slug}
+intent: "{intent}"
+requirements:
+  - id: R-001
+    statement: "[NEEDS CLARIFICATION] 첫 요구사항을 검증 가능한 한 문장으로"
+open_questions:
+  - "[NEEDS CLARIFICATION] 범위에서 빠지는 것은 무엇인가"

@@ -79,6 +79,7 @@ class Config:
     max_review_waves: int  # docs/06 — bounded review wave 의 한도
     risk_rules: tuple[Mapping[str, Any], ...]  # docs/06 — 항목 검증은 risk 가 한다
     budget: BudgetConfig  # docs/06 — 예산 상한
+    health_commands: tuple[tuple[str, ...], ...]  # docs/08 — converge 의 health 커맨드
     forbidden_paths: tuple[str, ...]  # docs/05 — 전역 금지 목록
     command_policy: Mapping[str, Any]  # 형태 검증은 policy 가 한다
     context: ContextConfig  # docs/07 — 계층형 컨텍스트 예산
@@ -148,6 +149,7 @@ def load(repo_root: Path | str) -> Config:
         max_review_waves=_bounded_int(data, "max_review_waves", 2, minimum=1),
         risk_rules=tuple(data.get("risk_rules") or ()),
         budget=_load_budget(data.get("budget")),
+        health_commands=_argv_list(data, "health_commands"),
         forbidden_paths=tuple(
             dict.fromkeys((*ALWAYS_FORBIDDEN, *_string_list(data, "forbidden_paths")))
         ),
@@ -155,6 +157,24 @@ def load(repo_root: Path | str) -> Config:
         context=_load_context(data.get("context")),
         path=path,
     )
+
+
+def _argv_list(data: Mapping[str, Any], key: str) -> tuple[tuple[str, ...], ...]:
+    raw = data.get(key)
+    if raw is None:
+        return ()
+    if not isinstance(raw, list):
+        raise ConfigError(f"{key} 는 목록이어야 한다")
+    out = []
+    for entry in raw:
+        if (
+            not isinstance(entry, list)
+            or not entry
+            or not all(isinstance(part, str) for part in entry)
+        ):
+            raise ConfigError(f"{key} 항목은 argv 문자열 리스트여야 한다: {entry!r}")
+        out.append(tuple(entry))
+    return tuple(out)
 
 
 def _load_budget(raw: Any) -> BudgetConfig:

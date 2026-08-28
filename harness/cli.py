@@ -99,13 +99,20 @@ def main(argv: list[str] | None = None) -> int:
     except SystemExit as exc:  # argparse 의 종료를 종료 코드로 바꾼다
         return int(exc.code or 2)
 
-    if args.command == "init":
-        return _init(args)
-    if args.command == "run":
-        return _run(args)
-    if args.command == "status":
-        return _status(args)
-    return _doctor(args)
+    handlers = {
+        "init": _init,
+        "spec": _spec,
+        "clarify": _clarify,
+        "plan": _plan,
+        "tasks": _tasks,
+        "analyze": _analyze,
+        "run": _run,
+        "converge": _converge,
+        "ship": _ship,
+        "status": _status,
+        "doctor": _doctor,
+    }
+    return handlers[args.command](args)
 
 
 def run_cli() -> None:
@@ -119,10 +126,35 @@ def _build_parser() -> argparse.ArgumentParser:
     init = sub.add_parser("init", help="저장소에 .harness/ 를 만든다")
     init.add_argument("--repo", help="저장소 루트 (기본: 현재 위치의 저장소)")
 
+    spec_cmd = sub.add_parser("spec", help="Intent → Spec 골격 (R-### 부여)")
+    spec_cmd.add_argument("intent", help="한 문장 의도")
+    spec_cmd.add_argument("--slug", help="specs/<slug>/ 이름 (기본: intent 에서 만든다)")
+    spec_cmd.add_argument("--repo", help="저장소 루트 (기본: 현재 위치의 저장소)")
+
+    clarify = sub.add_parser("clarify", help="[NEEDS CLARIFICATION] 해소")
+    clarify.add_argument("--repo", help="저장소 루트 (기본: 현재 위치의 저장소)")
+
+    plan = sub.add_parser("plan", help="Spec → Plan 골격")
+    plan.add_argument("--repo", help="저장소 루트 (기본: 현재 위치의 저장소)")
+
+    tasks_cmd = sub.add_parser("tasks", help="미할당 요구사항의 task 골격")
+    tasks_cmd.add_argument("--repo", help="저장소 루트 (기본: 현재 위치의 저장소)")
+
+    analyze_cmd = sub.add_parser("analyze", help="구현 전 게이트 — 실패하면 run 을 막는다")
+    analyze_cmd.add_argument("--repo", help="저장소 루트 (기본: 현재 위치의 저장소)")
+
     run = sub.add_parser("run", help="task DAG 를 실행한다")
     run.add_argument("--repo", help="저장소 루트 (기본: 현재 위치의 저장소)")
     run.add_argument("--run-id", help="run 디렉토리 이름 (기본: 시각으로 만든다)")
     run.add_argument("--resume", metavar="RUN-ID", help="죽은 run 을 이어서 실행한다")
+
+    converge_cmd = sub.add_parser("converge", help="구현 후 게이트 — 커버리지·드리프트·debt")
+    converge_cmd.add_argument("--repo", help="저장소 루트 (기본: 현재 위치의 저장소)")
+    converge_cmd.add_argument("--run", help="대상 run-id (기본: 가장 최근)")
+
+    ship_cmd = sub.add_parser("ship", help="통합·배포 게이트 — 사용자 브랜치로 머지")
+    ship_cmd.add_argument("--repo", help="저장소 루트 (기본: 현재 위치의 저장소)")
+    ship_cmd.add_argument("--run", help="대상 run-id (기본: 가장 최근)")
 
     status = sub.add_parser("status", help="현재 run 상태, open_debts, human_required")
     status.add_argument("--repo", help="저장소 루트 (기본: 현재 위치의 저장소)")
@@ -192,6 +224,14 @@ def _run(args: argparse.Namespace) -> int:
     """
     repo = _resolve_repo(args)
     try:
+        # analyze 게이트 (docs/08) — 기록이 있을 때만 작동한다
+        from harness.analyze import gate
+
+        blocked = gate(repo)
+        if blocked:
+            print(f"실행할 수 없다: {blocked}")
+            return 1
+
         config = load(repo)
         dag = Dag(load_tasks(repo))
         # 옵션 레이어 (docs/02) — cli 가 조립해 커널에 주입한다. 커널은 import 하지 않는다.
@@ -222,6 +262,127 @@ def _run(args: argparse.Namespace) -> int:
 
     _print_state(store.state)
     return 0 if all(t.state is State.DONE for t in store.state.tasks.values()) else 1
+
+
+# --------------------------------------------------------------------------- 스펙 파이프라인 (M6)
+
+
+def _spec(args: argparse.Namespace) -> int:
+    from harness.spec import create_spec
+
+    try:
+        path = create_spec(_resolve_repo(args), args.intent, args.slug)
+    except HarnessError as exc:
+        print(f"만들 수 없다: {exc}")
+        return 1
+    print(f"{path} 생성됨 — [NEEDS CLARIFICATION] 을 채운 뒤 harness clarify 로 확인한다")
+    return 0
+
+
+def _clarify(args: argparse.Namespace) -> int:
+    from harness.spec import open_questions, resolve_question
+
+    repo = _resolve_repo(args)
+    questions = open_questions(repo)
+    if not questions:
+        print("남은 [NEEDS CLARIFICATION] 이 없다")
+        return 0
+
+    if sys.stdin.isatty():
+        for path, question in questions:
+            print(f"{path}: {question}")
+            answer = input("답> ").strip()
+            if answer:
+                resolve_question(path, question, answer)
+        questions = open_questions(repo)
+        if not questions:
+            print("전부 해소되었다")
+            return 0
+
+    for path, question in questions:
+        print(f"{path}: {question}")
+    print(f"{len(questions)}개가 남아 있다 — spec 을 고치거나 TTY 에서 답한다")
+    return 1
+
+
+def _plan(args: argparse.Namespace) -> int:
+    from harness.spec import create_plans
+
+    created = create_plans(_resolve_repo(args))
+    for path in created:
+        print(f"{path} 생성됨")
+    if not created:
+        print("만들 plan 이 없다 — spec 이 없거나 plan 이 이미 있다")
+    return 0
+
+
+def _tasks(args: argparse.Namespace) -> int:
+    from harness.spec import scaffold_tasks
+
+    created = scaffold_tasks(_resolve_repo(args))
+    for path in created:
+        print(f"{path} 생성됨 — acceptance 를 채우기 전에는 analyze 가 막는다")
+    if not created:
+        print("만들 task 가 없다 — 모든 요구사항이 이미 할당되어 있다")
+    return 0
+
+
+def _analyze(args: argparse.Namespace) -> int:
+    from harness.analyze import analyze, write_report
+
+    repo = _resolve_repo(args)
+    try:
+        config = load(repo)
+        report = analyze(repo, config)
+    except HarnessError as exc:
+        print(f"analyze 할 수 없다: {exc}")
+        return 1
+    path = write_report(repo, report)
+    for failure in report.failures:
+        print(f"[실패] {failure}")
+    for warning in report.warnings:
+        print(f"[경고] {warning}")
+    print(f"{'통과' if report.ok else '실패'} — {path}")
+    return 0 if report.ok else 1
+
+
+def _converge(args: argparse.Namespace) -> int:
+    from harness.converge import converge
+
+    repo = _resolve_repo(args)
+    try:
+        config = load(repo)
+        report = converge(repo, config, args.run)
+    except HarnessError as exc:
+        print(f"converge 할 수 없다: {exc}")
+        return 1
+    for rid, status in report.coverage.items():
+        print(f"{rid}: {status}")
+    for failure in report.failures:
+        print(f"[실패] {failure}")
+    if report.open_debts:
+        print(
+            f"open_debts: {', '.join(report.open_debts)} — ship 이 막는다 "
+            "(waiver 는 .harness/waivers.yaml)"
+        )
+    print("통과" if report.ok else "실패")
+    return 0 if report.ok else 1
+
+
+def _ship(args: argparse.Namespace) -> int:
+    from harness.converge import ship
+
+    repo = _resolve_repo(args)
+    try:
+        config = load(repo)
+        report = ship(repo, config, args.run)
+    except HarnessError as exc:
+        print(f"ship 할 수 없다: {exc}")
+        return 1
+    if report.waived:
+        print(f"waived: {', '.join(report.waived)}")
+    print(report.detail)
+    return 0 if report.ok else 1
 
 
 # --------------------------------------------------------------------------- status

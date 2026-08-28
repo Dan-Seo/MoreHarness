@@ -18,6 +18,9 @@ harness/
   errors.py           # 예외 타입. 아무것도 import 하지 않는다. 분류는 10 의 표를 따른다.
   paths.py            # docs/05 glob 방언의 경로 매칭. 아무것도 import 하지 않는다.
   learn.py            # knowledge card 승격/폐기
+  spec.py             # 저작 단계 스캐폴드 — spec/clarify/plan/tasks (08)
+  analyze.py          # 구현 전 게이트 (08)
+  converge.py         # 구현 후 게이트와 ship (08)
 
   adapters/
     base.py           # AgentAdapter 프로토콜, AgentRequest/AgentResult
@@ -58,7 +61,7 @@ models · errors · schemas · paths
   ↑
 events · store · dag · git · risk · probes · policy
   ↑
-exec/* · context/*
+exec/* · context/* · spec · analyze · converge
   ↑
 eval/*
   ↑
@@ -90,6 +93,7 @@ cli
 ```
 exec/scheduler   (병렬)
 exec/review      (독립 리뷰)
+spec · analyze · converge   (스펙 파이프라인 — 저작과 게이트)
 risk             (티어 결정 — 없으면 declared_risk 를 그대로 쓴다)
 context/*        (고급 선택 — 없으면 task 계약에 명시된 파일만 넣는다)
 learn            (지식 축적)

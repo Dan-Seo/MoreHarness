@@ -1,0 +1,9 @@
+# tasks/{id}.task.yaml — 계약은 docs/03 이 canonical 이다.
+id: {id}
+name: {name}
+kind: implementation
+satisfies: [{requirement}]
+risk: low
+allowed_paths: []            # 비우면 허용 범위에 제한이 없다 (docs/05)
+acceptance: []               # 하네스가 직접 실행한다. 채우기 전에는 analyze 가 run 을 막는다 (docs/08)
+spec_hash: "{spec_hash}"

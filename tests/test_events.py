@@ -25,6 +25,7 @@ CANONICAL_EVENTS = {
     "ac_post_executed": {"cmd", "exit_code", "classification", "differential"},
     "debt_opened": {"debt_id", "cmd", "origin_task"},
     "debt_closed": {"debt_id", "closed_by"},
+    "debt_waived": {"debt_id", "approver", "reason"},
     "path_violation": {"paths", "rule"},
     "risk_escalated": {"declared", "path_floor", "diff_floor", "effective"},
     "review_finding": {"wave", "reviewer", "severity", "rule", "file", "line", "blocking"},

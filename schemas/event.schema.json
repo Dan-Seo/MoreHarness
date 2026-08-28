@@ -28,6 +28,7 @@
         "ac_post_executed",
         "debt_opened",
         "debt_closed",
+        "debt_waived",
         "path_violation",
         "risk_escalated",
         "review_finding",
