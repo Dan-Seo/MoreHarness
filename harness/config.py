@@ -32,6 +32,15 @@ ALWAYS_FORBIDDEN = (".harness/**",)
 
 
 @dataclass(frozen=True)
+class ContextConfig:
+    """docs/07 이 소유하는 `context` 키. 기본값도 07 의 예산 표가 canonical 이다."""
+
+    budget_tokens: int = 60000
+    reserve_for_output: int = 8000
+    slice_max_tokens: int = 4000
+
+
+@dataclass(frozen=True)
 class AdapterConfig:
     name: str
     type: str
@@ -53,6 +62,7 @@ class Config:
     blocked_signals: tuple[str, ...]
     forbidden_paths: tuple[str, ...]  # docs/05 — 전역 금지 목록
     command_policy: Mapping[str, Any]  # 형태 검증은 policy 가 한다
+    context: ContextConfig  # docs/07 — 계층형 컨텍스트 예산
     path: Path
 
 
@@ -120,8 +130,25 @@ def load(repo_root: Path | str) -> Config:
             dict.fromkeys((*ALWAYS_FORBIDDEN, *_string_list(data, "forbidden_paths")))
         ),
         command_policy=data.get("command_policy") or {},
+        context=_load_context(data.get("context")),
         path=path,
     )
+
+
+def _load_context(raw: Any) -> ContextConfig:
+    if raw is None:
+        return ContextConfig()
+    if not isinstance(raw, dict):
+        raise ConfigError("context 는 매핑이어야 한다")
+    fields = {}
+    for key in ("budget_tokens", "reserve_for_output", "slice_max_tokens"):
+        if key not in raw:
+            continue
+        value = raw[key]
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise ConfigError(f"context.{key} 는 0 이상의 정수여야 한다: {value!r}")
+        fields[key] = value
+    return ContextConfig(**fields)
 
 
 def _load_adapters(raw: Any) -> dict[str, AdapterConfig]:

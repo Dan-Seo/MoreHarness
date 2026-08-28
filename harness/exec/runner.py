@@ -87,14 +87,16 @@ def run_dag(
     resume: bool = False,
     scratch: Path | str | None = None,
     runner_cls: type["Runner"] | None = None,
+    context_builder: Any = None,
 ) -> Store:
     """DAG 를 끝까지 실행하고 journal 을 가진 Store 를 돌려준다.
 
     `resume` 이면 기존 run 의 journal 을 이어 쓴다. 무엇을 다시 하고 무엇을 건너뛸지는
     state 가 결정하며, 그 표는 docs/10 이 canonical 이다.
 
-    `runner_cls` 는 옵션 스케줄러(docs/02)가 같은 진입 절차를 재사용하기 위한
-    확장점이다. 커널은 스케줄러를 import 하지 않는다.
+    `runner_cls` 와 `context_builder` 는 옵션 레이어(docs/02)가 커널에 끼어드는
+    확장점이다. 커널은 스케줄러도 context 도 import 하지 않는다 — builder 가 없으면
+    task 계약에 명시된 파일만 넣는다.
     """
     repo = Path(repo)
     if config.default_profile not in SUPPORTED_PROFILES:
@@ -108,7 +110,9 @@ def run_dag(
     )
     store = Store(_run_dir(repo, run_id, resume))
     cls = runner_cls or Runner
-    return cls(repo, config, store, policy, adapter, scratch).run(dag, resume=resume)
+    return cls(repo, config, store, policy, adapter, scratch, context_builder).run(
+        dag, resume=resume
+    )
 
 
 class Runner:
@@ -120,6 +124,7 @@ class Runner:
         policy: CommandPolicy,
         adapter: Any = None,
         scratch: Path | str | None = None,
+        context_builder: Any = None,
     ) -> None:
         self.repo = repo
         self.config = config
@@ -127,6 +132,7 @@ class Runner:
         self.policy = policy
         self._fixed_adapter = adapter
         self._adapters: dict[str, Any] = {}
+        self.context_builder = context_builder
         self.workspaces = Workspaces(repo, store.run_id, config.default_profile, scratch)
 
     # ----------------------------------------------------------------- 런 루프
@@ -312,11 +318,11 @@ class Runner:
 
     def _up_to_dispatch(self, task: Task, attempt: int, workspace: Workspace, task_dir: Path):
         """프롬프트 → precheck → baseline → agent. 중간에 멈추면 그 사유를 돌려준다."""
-        prompt_path = self._write_prompt(task, task_dir, workspace)
+        prompt_path, manifest_ref = self._write_prompt(task, task_dir, workspace)
         self.store.append(
             EventType.TASK_DISPATCHED,
             {
-                "context_manifest_ref": None,  # 계층형 컨텍스트는 M4 다
+                "context_manifest_ref": manifest_ref,
                 "prompt_ref": str(prompt_path),
                 # risk 모듈이 없으면 선언값을 그대로 쓴다 (docs/02 의 옵션 경계)
                 "effective_risk": str(task.risk) if task.risk else None,
@@ -575,13 +581,30 @@ class Runner:
             json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
 
-    def _write_prompt(self, task: Task, task_dir: Path, workspace: Workspace) -> Path:
-        """프롬프트는 constitution + task 계약이다.
+    def _write_prompt(
+        self, task: Task, task_dir: Path, workspace: Workspace
+    ) -> tuple[Path, str | None]:
+        """프롬프트를 쓰고 (경로, context manifest 참조) 를 돌려준다.
 
-        계층형 컨텍스트 선택과 예산은 M4 다. 그전까지는 docs/02 가 정한 대로 task 계약에
-        명시된 파일만 넣는다. constitution 은 **항상 메인 저장소에서** 읽고, 저장소
-        콘텐츠는 **워크스페이스에서** 읽는다 — upstream 이 만든 것이 거기 있다 (docs/05).
+        계층형 컨텍스트(docs/07)는 옵션이다. builder 가 없으면 커널은 docs/02 가 정한
+        대로 task 계약에 명시된 파일만 넣는다. constitution 은 **항상 메인 저장소에서**
+        읽고, 저장소 콘텐츠는 **워크스페이스에서** 읽는다 — upstream 이 만든 것이
+        거기 있다 (docs/05).
         """
+        path = task_dir / "prompt.md"
+
+        if self.context_builder is not None:
+            built = self.context_builder.build(
+                task, run_dir=self.store.run_dir, workspace=workspace.path
+            )
+            manifest_path = task_dir / "context.manifest.json"
+            manifest_path.write_text(
+                json.dumps(built.manifest, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            path.write_text(built.prompt, encoding="utf-8")
+            return path, str(manifest_path)
+
         sections = [_read(self.repo / HARNESS_DIR / "constitution.md"), _task_card(task)]
         for relative in task.context.get("files") or ():
             body = _read(workspace.path / relative)
@@ -592,9 +615,8 @@ class Runner:
             "claim 은 `$HARNESS_OUTBOX/result.json`, handoff 는 `$HARNESS_OUTBOX/handoff.json` 이다.\n"
             "둘 다 optional 이며, 하네스는 이 보고가 아니라 자기 관측으로 판정한다."
         )
-        path = task_dir / "prompt.md"
         path.write_text("\n\n".join(s for s in sections if s) + "\n", encoding="utf-8")
-        return path
+        return path, None
 
     # ----------------------------------------------------------------- 보조
 
