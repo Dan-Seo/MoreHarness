@@ -108,14 +108,18 @@ def test_the_fixture_declares_its_own_adapter_and_policy(converted):
     assert (case / "seed" / ".harness" / "approved_commands.yaml").is_file()
 
 
-def test_the_only_task_has_no_visible_acceptance(converted):
-    """docs/11 — 채점 기준을 숨기는 것이 이 벤치마크의 본질이다."""
+def test_the_task_is_left_to_the_harness_scaffold(converted):
+    """docs/11 — 컨버터는 `tasks/` 를 만들지 않는다. R-### 하나당 골격 하나는 하네스가 만들고,
+    **보이는 AC 는 없다** — 채점 기준을 숨기는 것이 이 벤치마크의 본질이다."""
+    from harness.dag import load_tasks
+
     _, case, _ = converted
-    task = yaml.safe_load((case / "tasks" / "T-001.task.yaml").read_text(encoding="utf-8"))
-    assert task["id"] == "T-001"
-    assert task["kind"] == "implementation"
-    assert task["satisfies"] == ["R-001"]
-    assert not task.get("acceptance")
+    assert not (case / "tasks").exists()
+
+    repo = fixtures.materialize(fixtures.load(case), case.parent / "work")
+    tasks = load_tasks(repo)
+    assert [task.satisfies for task in tasks.values()] == [("R-001",)]
+    assert all(not task.acceptance for task in tasks.values())
 
 
 # --------------------------------------------------------------------------- hidden

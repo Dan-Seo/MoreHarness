@@ -28,7 +28,7 @@
 ```
 evals/fixtures/<case>/
   seed/                   # 초기 저장소 전체
-  tasks/                  # 선택. 없으면 하네스가 plan/tasks 를 만든다
+  tasks/                  # 선택. 없으면 seed 의 스펙에서 하네스가 plan/tasks 를 만든다
   grader/
     hidden_ac.yaml        # 채점 기준
     expected.yaml         # 기대 산출물 형태
@@ -216,7 +216,7 @@ exec/* · context/*  ←  eval/*  ←  cli
 ```
 
 - **`cli`가 `eval`을 호출한다.** `eval`은 `cli`를 import하지 않는다.
-- `eval`이 의존하는 하위 API는 `store`(journal 읽기), `exec/runner`(실행), `adapters/registry`(arm별 어댑터 선택), `models`뿐이다.
+- `eval`이 의존하는 하위 API는 `store`(journal 읽기), `exec/runner`(실행), `adapters/registry`(arm별 어댑터 선택), `spec`(`tasks/` 없는 fixture 의 골격), `models`뿐이다.
 - `eval`을 import하는 모듈은 `cli` 하나다. 순환 의존은 금지한다.
 - eval fixture가 실행하는 커맨드도 Command Policy를 통과한다. 06 참조.
 
@@ -259,7 +259,7 @@ acceptance:
 
 ### 만들어지는 task
 
-요구사항 하나(R-001)와 task 하나(T-001)를 만들고 **그 task 에 보이는 AC 는 없다.** 채점 기준을 숨기는 것이 이 벤치마크의 본질이므로 하네스가 가진 증거는 diff 와 리뷰뿐이다. 이것은 컨버터의 결함이 아니라 이 벤치마크에서 하네스가 실제로 놓인 조건이며, `escape_rate` 가 그것을 드러낸다.
+컨버터는 요구사항 하나(R-001)만 만들고 **`tasks/` 는 쓰지 않는다.** 위 「Fixture」의 규칙대로 하네스가 스펙에서 골격을 만들고, 그 골격에는 **보이는 AC 가 없다.** 채점 기준을 숨기는 것이 이 벤치마크의 본질이므로 하네스가 가진 증거는 diff 와 리뷰뿐이다. 이것은 컨버터의 결함이 아니라 이 벤치마크에서 하네스가 실제로 놓인 조건이며, `escape_rate` 가 그것을 드러낸다.
 
 `grader/expected.yaml` 은 만들지 않는다 — 외부 벤치마크 fixture 는 능력 eval 용이고 회귀 eval 은 `mock` 으로 돈다.
 

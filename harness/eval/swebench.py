@@ -116,7 +116,6 @@ def _convert_one(record: dict, instance_id: str, repos: Path, case: Path) -> Non
     _extract_tree(checkout, base_commit, case / "seed")
     _write_control_plane(case / "seed" / ".harness")
     _write_spec(case / "seed" / "specs" / instance_id, instance_id, repo, record)
-    _write_task(case / "tasks")
     _write_grader(case / "grader", record, fail_to_pass, pass_to_pass)
     _write_meta(case / "meta.yaml", instance_id, repo, record, fail_to_pass, pass_to_pass)
 
@@ -162,7 +161,8 @@ def _write_control_plane(harness_dir: Path) -> None:
 
 
 def _write_spec(directory: Path, instance_id: str, repo: str, record: dict) -> None:
-    """문제 서술이 R-001 이다. 요구사항이 하나라는 것이 이 벤치마크의 모양이다."""
+    """문제 서술이 R-001 이다. 요구사항이 하나라는 것이 이 벤치마크의 모양이고, 그래서
+    하네스가 만드는 task 도 하나다 — `tasks/` 는 컨버터가 쓰지 않는다 (docs/11)."""
     _dump(
         directory / "spec.yaml",
         {
@@ -171,20 +171,6 @@ def _write_spec(directory: Path, instance_id: str, repo: str, record: dict) -> N
             "requirements": [
                 {"id": "R-001", "statement": str(record.get("problem_statement") or "")}
             ],
-        },
-    )
-
-
-def _write_task(directory: Path) -> None:
-    """**보이는 AC 는 없다** (docs/11). 채점 기준을 숨기는 것이 이 벤치마크의 본질이므로
-    하네스가 가진 증거는 diff 와 리뷰뿐이다."""
-    _dump(
-        directory / "T-001.task.yaml",
-        {
-            "id": "T-001",
-            "name": "resolve-issue",
-            "kind": "implementation",
-            "satisfies": ["R-001"],
         },
     )
 

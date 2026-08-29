@@ -65,6 +65,59 @@ def test_a_materialized_fixture_is_a_git_repository(tmp_path):
     assert is_repo(materialize(fixture, tmp_path / "work"))
 
 
+# --------------------------------------------------------------------------- tasks/ 스캐폴드
+
+SPEC = """\
+slug: demo
+intent: "데모"
+requirements:
+  - id: R-001
+    statement: "첫 요구사항"
+  - id: R-002
+    statement: "둘째 요구사항"
+"""
+
+
+def spec_only_case(root: Path) -> Path:
+    """`tasks/` 가 없는 fixture. 스펙은 seed 안에 있다 (docs/11)."""
+    case = root / "case"
+    specs = case / "seed" / "specs" / "demo"
+    specs.mkdir(parents=True)
+    (specs / "spec.yaml").write_text(SPEC, encoding="utf-8")
+    return case
+
+
+def test_a_fixture_without_tasks_gets_them_scaffolded(tmp_path):
+    """docs/11 — `tasks/` 는 선택이다. 없으면 하네스가 스펙에서 plan/tasks 를 만든다."""
+    from harness.dag import load_tasks
+    from harness.git import git
+
+    repo = materialize(load(spec_only_case(tmp_path)), tmp_path / "work")
+
+    tasks = load_tasks(repo)
+    assert sorted(rid for task in tasks.values() for rid in task.satisfies) == ["R-001", "R-002"]
+    assert all(not task.acceptance for task in tasks.values())
+    assert (repo / "specs" / "demo" / "plan.md").is_file()
+    # 골격은 seed 커밋 안에 있어야 한다 — 아니면 agent 가 만든 변경으로 관측된다
+    assert git(["status", "--porcelain"], cwd=repo).stdout.strip() == ""
+
+
+def test_a_fixture_that_ships_tasks_keeps_exactly_those(tmp_path):
+    """fixture 가 DAG 를 주장하면 하네스는 거기에 손대지 않는다."""
+    from harness.dag import load_tasks
+
+    case = spec_only_case(tmp_path)
+    (case / "tasks").mkdir()
+    (case / "tasks" / "T-009.task.yaml").write_text(
+        "id: T-009\nname: mine\nkind: implementation\nsatisfies: [R-001]\n", encoding="utf-8"
+    )
+
+    repo = materialize(load(case), tmp_path / "work")
+
+    assert list(load_tasks(repo)) == ["T-009"]
+    assert not (repo / "specs" / "demo" / "plan.md").exists()
+
+
 # --------------------------------------------------------------------------- 채점
 
 

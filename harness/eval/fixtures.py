@@ -17,6 +17,7 @@ from typing import Any, Mapping
 import yaml
 
 from harness.git import git
+from harness.spec import create_plans, scaffold_tasks
 
 GRADER_DIR = "grader"
 # hidden AC 의 argv 에서 fixture 의 `grader/` 절대 경로로 치환된다 (docs/11).
@@ -58,6 +59,8 @@ def materialize(fixture: Fixture, dest: Path | str) -> Path:
     """fixture 의 `seed/` 로 git 저장소를 만든다. `grader/` 는 따라오지 않는다.
 
     저장소여야 하는 이유는 판정이 `git diff` 를 읽기 때문이다 (docs/06).
+
+    `tasks/` 가 없는 fixture 는 스펙만 주장하는 것이므로 하네스가 골격을 만든다.
     """
     repo = Path(dest)
     shutil.copytree(fixture.root / SEED_DIR, repo, dirs_exist_ok=True)
@@ -65,6 +68,11 @@ def materialize(fixture: Fixture, dest: Path | str) -> Path:
     tasks = fixture.root / TASKS_DIR
     if tasks.is_dir():
         shutil.copytree(tasks, repo / TASKS_DIR, dirs_exist_ok=True)
+    else:
+        # docs/11 — `tasks/` 는 선택이다. 없으면 하네스가 스펙에서 골격을 만든다.
+        # `_init_repo` 앞이어야 한다. 커밋 밖에 있으면 agent 가 만든 변경으로 관측된다.
+        create_plans(repo)
+        scaffold_tasks(repo)
 
     (repo / ".harness" / "runs").mkdir(parents=True, exist_ok=True)
     _init_repo(repo)
