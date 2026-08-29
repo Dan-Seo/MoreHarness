@@ -33,6 +33,7 @@ class AgentRequest:
     timeout_s: int
     env: Mapping[str, str]       # 화이트리스트. HARNESS_OUTBOX 를 포함한다.
     attempt: int
+    container: ContainerSpec | None   # 05 의 container 프로파일. None 이면 호스트에서 실행한다.
 
 
 @dataclass(frozen=True)
@@ -180,6 +181,7 @@ adapters:
 | 아티팩트 파손 | 내용이 깨져 있어도 **경로만 반환한다.** 파싱하거나 고치지 않는다 |
 | 판정 금지 | `AgentResult` 어디에도 성공/실패 해석이 없다 |
 | 멱등 정리 | 같은 attempt 로 두 번 호출해도 프로세스 잔재가 남지 않는다 |
+| container 감싸기 | 프로세스를 띄우는 어댑터는 `request.container` 가 있으면 05 의 조립 규칙으로 자기 argv 를 감싼다. 규칙을 변형하지 않는다 |
 
 ### 어댑터의 의무가 **아닌** 것
 

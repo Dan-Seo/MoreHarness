@@ -47,6 +47,7 @@ harness/
 
   eval/               # 커널 밖
     fixtures.py  arms.py  metrics.py  report.py
+    swebench.py       # 외부 벤치마크 → fixture 컨버터
 
   resources/          # 패키지와 함께 배포되는 런타임 리소스
     schemas/          # jsonschema 정의 (claim, handoff, task, spec, event, findings)

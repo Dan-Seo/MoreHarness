@@ -47,6 +47,16 @@ class ExecutionProfile(StrEnum):
     UNSAFE = "unsafe"
 
 
+@dataclass(frozen=True)
+class ContainerSpec:
+    """docs/05 — `container` 프로파일의 실행 계약. 조립 규칙은 그 문서가 canonical 이다."""
+
+    image: str
+    runtime: str = "docker"
+    network: str | None = None
+    mounts: tuple[str, ...] = ()
+
+
 class TaskKind(StrEnum):
     IMPLEMENTATION = "implementation"
     ANALYSIS = "analysis"

@@ -9,8 +9,6 @@ from __future__ import annotations
 from typing import Any, Callable, Mapping
 
 from harness.adapters.base import AgentAdapter
-from harness.adapters.claude_cli import build_claude_cli
-from harness.adapters.codex_cli import build_codex_cli
 from harness.adapters.generic_cli import build_generic_cli
 from harness.adapters.mock import build_mock
 from harness.errors import AdapterNotFoundError
@@ -20,9 +18,18 @@ AdapterFactory = Callable[[str, Mapping[str, Any]], AgentAdapter]
 _FACTORIES: dict[str, AdapterFactory] = {
     "mock": build_mock,
     "generic_cli": build_generic_cli,
-    "claude_cli": build_claude_cli,
-    "codex_cli": build_codex_cli,
 }
+
+# 벤더 어댑터는 옵션이다 (docs/02). 없으면 그 타입이 registry 에 없을 뿐이고, 커널은
+# `mock` 과 `generic_cli` 로 그대로 동작한다.
+try:
+    from harness.adapters.claude_cli import build_claude_cli
+    from harness.adapters.codex_cli import build_codex_cli
+except ImportError:
+    pass
+else:
+    _FACTORIES["claude_cli"] = build_claude_cli
+    _FACTORIES["codex_cli"] = build_codex_cli
 
 
 def register(type_name: str, factory: AdapterFactory) -> None:

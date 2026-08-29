@@ -6,8 +6,9 @@
 
 ## 현재 상태
 
-설계 문서 13개가 확정되어 있고 **M7(벤더 어댑터와 능력 평가)까지 구현되어 있다. 다음은 M8(옵션 레이어)이다.**
-마일스톤에 착수하기 전 `docs/12-ROADMAP.md`의 "구현 세션을 위한 리허설 체크리스트"를 확인할 것. 거기 질문의 답이 문서에 없다면 그것은 설계의 빈틈이지 구현자가 임의로 정할 일이 아니다.
+설계 문서 13개가 확정되어 있고 **M0~M8이 전부 구현되어 있다.** 로드맵의 마지막 관문인
+"옵션 레이어를 전부 제거해도 커널이 동작한다"는 `tests/test_kernel_only.py`가 강제한다 — 옵션 모듈의 import 를 막은 서브프로세스에서 파이프라인이 완주한다.
+기능을 더할 때는 `docs/12-ROADMAP.md`의 "구현 세션을 위한 리허설 체크리스트"를 확인할 것. 거기 질문의 답이 문서에 없다면 그것은 설계의 빈틈이지 구현자가 임의로 정할 일이 아니다.
 
 ## 기술 스택
 
@@ -72,7 +73,7 @@ python -m harness clarify · plan · tasks  # 저작 스캐폴드
 python -m harness analyze  # 구현 전 게이트 — 실패하면 run 이 막힌다
 python -m harness converge # 구현 후 게이트 — 커버리지·드리프트·debt
 python -m harness ship     # 통합 브랜치를 사용자 브랜치로 머지
+python -m harness learn    # 지식 카드 — 후보 제안, promote/retire 는 사람이 한다
 python -m harness eval run --fixtures evals/ --arms raw,harness-full --repeat 3
+python -m harness eval import --benchmark swebench --instances <jsonl> --repos <dir> --out <dir>
 ```
-
-나머지 커맨드(`learn`)는 뒤 마일스톤에서 만든다.

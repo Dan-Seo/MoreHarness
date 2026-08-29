@@ -45,6 +45,57 @@
 
 ---
 
+## `container`
+
+OS 수준 격리를 제공하는 유일한 프로파일이다. 하네스는 **agent 프로세스만** 컨테이너 안에서
+실행한다. AC·precondition·health 커맨드와 diff 관측은 호스트에서 그대로 돈다 — 판정은
+하네스 소유 증거이고, 그 증거를 agent 와 같은 봉투 안에서 만들지 않는다.
+
+워크스페이스 생명주기는 `worktree` 와 같다. 컨테이너는 **실행 방식이지 워크스페이스 배치가
+아니다.**
+
+```yaml
+container:                     # 05 가 소유하는 config 키
+  runtime: docker              # 실행 파일 이름. docker | podman
+  image: "example/agent:1"     # 필수
+  network: null                # null 이면 런타임 기본값. "none" 이면 네트워크를 끊는다
+  mounts: []                   # 추가 마운트. "<host>:<container>[:ro]" 문자열 목록
+```
+
+어댑터가 만든 argv 를 다음 형태로 감싼다.
+
+```
+<runtime> run --rm
+  -v <workspace>:<workspace>  -v <outbox>:<outbox>
+  -w <workspace>
+  [-i]                         # prompt_delivery 가 stdin 이면
+  -e <NAME> ...                # 값이 아니라 이름만
+  [--network <network>]
+  [-v <mount> ...]
+  <image>
+  <어댑터가 만든 argv...>
+```
+
+- **경로는 호스트와 컨테이너에서 같다.** 워크스페이스와 outbox 를 같은 경로로 마운트하므로
+  프롬프트와 매니페스트에 적힌 경로가 컨테이너 안에서도 그대로 유효하다.
+- **`.harness/` 를 마운트하지 않는다.** control-plane 은 컨테이너 안에서 보이지 않는다.
+- 환경변수는 `-e NAME` 으로 **이름만** 넘긴다. 값은 런타임 CLI 프로세스의 환경에서 전달되므로
+  프로세스 목록에 비밀이 남지 않는다. 어떤 이름이 넘어가는지는 04 의 `env_passthrough` 규약
+  그대로다.
+- **network 기본은 런타임 기본값이다.** agent CLI 는 모델 API 에 접근해야 하므로 하네스가
+  임의로 끊지 않는다. 끊으려면 `network: none` 을 명시한다.
+- 컨테이너가 만든 파일의 소유자는 런타임이 정한다. 하네스는 보정하지 않는다.
+
+`runtime` 실행 파일이 없으면 준비물 부족이므로 verdict `blocked` 다. `image` 미선언은 설정
+결함이므로 `error` 다. 분류표는 10 이 canonical 이다.
+
+**`container` 에서 준비물 검사의 대상은 어댑터의 실행 파일이 아니라 `runtime` 이다.** agent
+CLI 는 이미지 안에 있고 호스트에 없을 수 있으므로, 어댑터 preflight 의 `missing_prerequisite`
+는 이 프로파일에서 `blocked` 로 이어지지 않는다. 설정 결함(`misconfigured`)은 그대로 `error`
+다 (04 의 preflight 분류).
+
+---
+
 ## `unsafe`
 
 - **절대 기본값이 아니다.**
@@ -165,6 +216,7 @@ ready_set = { t | t.depends_on 이 전부 verified }
 
 ```yaml
 forbidden_paths: [".harness/**"]   # 전역 금지 목록. task 의 forbidden_paths 와 합집합이다.
+container: null                    # container 프로파일의 실행 계약. 위 「container」 절.
 ```
 
 **`.harness/**`는 이 목록에서 뺄 수 없다.** 설정에서 지우더라도 하네스가 다시 넣는다. control-plane을 agent가 고칠 수 있게 만드는 설정은 존재하지 않아야 한다.

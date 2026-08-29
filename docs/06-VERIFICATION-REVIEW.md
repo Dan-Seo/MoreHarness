@@ -299,7 +299,7 @@ risk_rules:                      # 선언은 내장 기본 목록에 **추가**�
 | `low` | `spec` |
 | `medium` | + `quality` |
 | `high` | + `architecture-security` |
-| `critical` | + `adversarial` (cross-adapter는 M8) |
+| `critical` | + `adversarial` |
 
 ---
 
@@ -381,6 +381,7 @@ max_handoff_repairs: 1        # repairing 에서 handoff fixer 를 부를 수 �
 blocked_signals: []           # AC stderr 대조 패턴(정규식) 목록
 
 max_review_waves: 2           # bounded review wave 의 한도
+adversarial_adapter: null     # adversarial 리뷰어가 쓸 어댑터 이름. null 이면 task 의 어댑터
 
 risk_rules: []                # effective_risk 의 경로 floor — 위 "risk_rules" 절
 
@@ -397,4 +398,8 @@ command_policy:               # 위 "Command Policy" 절의 형태
 - `agent_timeout_s`가 `AgentRequest.timeout_s`의 출처다. 초과는 어댑터가 `runtime_failure=timeout`으로 표시하며, 04가 canonical이다.
 - **`max_attempts`가 03의 verdict → next_state 표에서 말하는 "시도 소진"의 기준이다.** 소진되면 `rejected`의 next_state가 `ready`가 아니라 `needs_replan`이 된다.
 - `max_handoff_repairs`를 소진하면 state `human_required`(reason: `handoff_missing`)다.
+- **`adversarial_adapter`는 `critical` 티어의 독립성을 한 단계 더 올리는 옵션이다.** 구현자와
+  같은 모델이 자기 결과를 적대적으로 검토하면 같은 맹점을 공유한다. `adapters`에 선언된 다른
+  이름을 지정하면 `adversarial` 리뷰어만 그 어댑터로 실행된다. 나머지 리뷰어와 fixer 는 영향을
+  받지 않는다. 지정한 이름이 `adapters`에 없으면 로드 실패다.
 - **`blocked_signals`의 기본이 빈 목록인 것은 의도다.** 패턴을 미리 심으면 프로젝트마다 오탐이 생기고, 오탐의 결과는 잘못된 `blocked`다. 기본 경로는 precondition 재실행이라는 하네스 소유 증거이며, 패턴은 그 저장소가 자기 실패 양상을 알 때 더한다.

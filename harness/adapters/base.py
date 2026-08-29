@@ -11,7 +11,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Mapping, Protocol
 
-from harness.models import ExecutionProfile
+from harness.models import ContainerSpec, ExecutionProfile
 
 
 class RuntimeFailure(StrEnum):
@@ -63,6 +63,7 @@ class AgentRequest:
     timeout_s: int
     env: Mapping[str, str]  # 화이트리스트. HARNESS_OUTBOX 를 포함한다.
     attempt: int
+    container: ContainerSpec | None = None  # docs/05 — 없으면 호스트에서 실행한다
 
 
 @dataclass(frozen=True)

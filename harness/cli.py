@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 from harness.adapters.registry import build
-from harness.config import HARNESS_DIR, load
+from harness.config import HARNESS_DIR, Config, load
 from harness.dag import Dag, load_tasks
 from harness.errors import (
     AdapterNotFoundError,
@@ -109,10 +109,16 @@ def main(argv: list[str] | None = None) -> int:
         "converge": _converge,
         "ship": _ship,
         "eval": _eval,
+        "learn": _learn,
         "status": _status,
         "doctor": _doctor,
     }
-    return handlers[args.command](args)
+    try:
+        return handlers[args.command](args)
+    except ImportError as exc:
+        # 옵션 레이어가 없는 설치본이다 (docs/02). 커맨드가 없는 것이지 결함이 아니다.
+        print(f"이 커맨드에는 옵션 모듈이 필요하다: {exc}")
+        return 1
 
 
 def run_cli() -> None:
@@ -163,6 +169,17 @@ def _build_parser() -> argparse.ArgumentParser:
     eval_run.add_argument("--arms", required=True, help="쉼표로 구분한 arm 목록")
     eval_run.add_argument("--repeat", type=int, default=3)
     eval_run.add_argument("--out", help="리포트를 쓸 위치 (기본: --fixtures 디렉토리)")
+
+    eval_import = eval_sub.add_parser("import", help="외부 벤치마크 → fixture 변환")
+    eval_import.add_argument("--benchmark", required=True, choices=("swebench",))
+    eval_import.add_argument("--instances", required=True, help="인스턴스 JSON Lines 파일")
+    eval_import.add_argument("--repos", required=True, help="로컬 체크아웃들이 있는 디렉토리")
+    eval_import.add_argument("--out", required=True, help="fixture 를 쓸 디렉토리")
+
+    learn_cmd = sub.add_parser("learn", help="지식 카드 — 후보 제안, 승격, 폐기")
+    learn_cmd.add_argument("action", nargs="?", choices=("promote", "retire"), help="사람의 판단")
+    learn_cmd.add_argument("card", nargs="?", help="K-### (promote/retire 에 필요하다)")
+    learn_cmd.add_argument("--repo", help="저장소 루트 (기본: 현재 위치의 저장소)")
 
     status = sub.add_parser("status", help="현재 run 상태, open_debts, human_required")
     status.add_argument("--repo", help="저장소 루트 (기본: 현재 위치의 저장소)")
@@ -232,29 +249,16 @@ def _run(args: argparse.Namespace) -> int:
     """
     repo = _resolve_repo(args)
     try:
-        # analyze 게이트 (docs/08) — 기록이 있을 때만 작동한다
-        from harness.analyze import gate
-
-        blocked = gate(repo)
+        blocked = _analyze_gate(repo)
         if blocked:
             print(f"실행할 수 없다: {blocked}")
             return 1
 
         config = load(repo)
         dag = Dag(load_tasks(repo))
-        # 옵션 레이어 (docs/02) — cli 가 조립해 커널에 주입한다. 커널은 import 하지 않는다.
-        from harness.context.builder import ContextBuilder
-        from harness.exec.review import ReviewStage
-
-        builder = ContextBuilder(repo, config)
-        review = ReviewStage(repo, config)
-        if config.max_parallel > 1:
-            # 옵션 모듈이다 (docs/02). 병렬을 쓰지 않는 한 import 하지 않는다.
-            from harness.exec import scheduler
-
-            execute = scheduler.run_dag
-        else:
-            execute = run_dag
+        builder, review, execute, missing = _optional_stages(repo, config)
+        if missing:
+            print(f"옵션 없이 돈다 (docs/02): {', '.join(missing)}")
         store = execute(
             repo,
             config,
@@ -270,6 +274,47 @@ def _run(args: argparse.Namespace) -> int:
 
     _print_state(store.state)
     return 0 if all(t.state is State.DONE for t in store.state.tasks.values()) else 1
+
+
+def _analyze_gate(repo: Path) -> str:
+    """docs/08 의 구현 전 게이트. 기록이 있을 때만 작동하고, 옵션이므로 없으면 게이트도 없다."""
+    try:
+        from harness.analyze import gate
+    except ImportError:
+        return ""
+    return gate(repo)
+
+
+def _optional_stages(repo: Path, config: Config):
+    """옵션 레이어 (docs/02) — cli 가 조립해 커널에 주입한다. 커널은 import 하지 않는다.
+
+    없으면 없는 채로 돈다. 그것이 M8 의 완료 기준이다 — 옵션을 전부 제거해도 커널은
+    파이프라인을 끝까지 돌린다. 무엇이 빠졌는지는 사람에게 말한다.
+    """
+    builder = review = None
+    missing = []
+    try:
+        from harness.context.builder import ContextBuilder
+    except ImportError:
+        missing.append("context")
+    else:
+        builder = ContextBuilder(repo, config)
+    try:
+        from harness.exec.review import ReviewStage
+    except ImportError:
+        missing.append("review")
+    else:
+        review = ReviewStage(repo, config)
+
+    execute = run_dag
+    if config.max_parallel > 1:
+        try:
+            from harness.exec import scheduler
+
+            execute = scheduler.run_dag
+        except ImportError:
+            missing.append("scheduler")
+    return builder, review, execute, tuple(missing)
 
 
 # --------------------------------------------------------------------------- 스펙 파이프라인 (M6)
@@ -397,6 +442,9 @@ def _ship(args: argparse.Namespace) -> int:
 
 
 def _eval(args: argparse.Namespace) -> int:
+    if args.eval_command == "import":
+        return _eval_import(args)
+
     import tempfile
 
     from harness.eval import arms as arms_mod
@@ -428,7 +476,62 @@ def _eval(args: argparse.Namespace) -> int:
     return 0
 
 
+def _eval_import(args: argparse.Namespace) -> int:
+    """docs/11 — 없는 체크아웃은 건너뛰고 보고한다. 하나가 없다고 전체가 실패하지 않는다."""
+    from harness.eval import swebench
+
+    try:
+        report = swebench.convert(args.instances, args.repos, args.out)
+    except HarnessError as exc:
+        print(str(exc))
+        return 1
+
+    for instance_id in report.created:
+        print(f"변환  {instance_id}")
+    for instance_id, reason in report.skipped:
+        print(f"건너뜀  {instance_id} — {reason}")
+    print(f"{len(report.created)} 개 변환, {len(report.skipped)} 개 건너뜀 → {args.out}")
+    return 0
+
+
 # --------------------------------------------------------------------------- status
+
+
+def _learn(args: argparse.Namespace) -> int:
+    """docs/08 — 하네스는 제안하고 사람이 승격·폐기한다."""
+    from harness import learn as learn_module
+
+    repo = _resolve_repo(args)
+    if args.action:
+        if not args.card:
+            print(f"{args.action} 에는 카드 id 가 필요하다 — harness learn {args.action} K-001")
+            return 2
+        try:
+            path = (learn_module.promote if args.action == "promote" else learn_module.retire)(
+                repo, args.card
+            )
+        except HarnessError as exc:
+            print(str(exc))
+            return 1
+        print(f"{args.card} → {args.action}d ({path})")
+        return 0
+
+    try:
+        config = load(repo)
+    except HarnessError as exc:
+        print(str(exc))
+        return 1
+
+    report = learn_module.learn(repo, config)
+    for card_id in report.proposed:
+        print(f"제안  {card_id} — claim 을 채운 뒤 harness learn promote {card_id}")
+    for card_id in report.updated:
+        print(f"보강  {card_id} — evidence 추가")
+    for card_id in report.retire_candidates:
+        print(f"폐기?  {card_id} — 오래 쓰이지 않았다. harness learn retire {card_id}")
+    if not (report.proposed or report.updated or report.retire_candidates):
+        print("새 후보 없음")
+    return 0
 
 
 def _status(args: argparse.Namespace) -> int:

@@ -21,7 +21,7 @@ from harness.adapters.registry import build as build_adapter
 from harness.config import HARNESS_DIR, Config, load as load_config
 from harness.dag import Dag, load_tasks
 from harness.errors import HarnessError
-from harness.eval.fixtures import GRADER_DIR, Fixture, materialize
+from harness.eval.fixtures import GRADER_DIR, GRADER_PLACEHOLDER, Fixture, materialize
 from harness.events import EventType
 from harness.exec.runner import ENV_PASSTHROUGH, run_dag
 from harness.exec.verify import GREEN, RED
@@ -155,11 +155,18 @@ def grade_in(fixture: Fixture, repo: Path, tree: Path) -> GraderResult:
 
 
 def _hidden_acceptance(fixture: Fixture) -> list[tuple[tuple[str, ...], bool]]:
+    """`{grader}` 치환은 여기서만 일어난다 — 컨텍스트 조립에는 `grader/` 가 없다 (docs/11)."""
     path = fixture.root / GRADER_DIR / "hidden_ac.yaml"
     data = yaml.safe_load(path.read_text(encoding="utf-8")) if path.is_file() else None
     entries = (data or {}).get("acceptance") or ()
+    grader = str(fixture.root / GRADER_DIR)
     return [
-        (tuple(entry.get("cmd") or ()), bool(entry.get("shell", False)))
+        (
+            tuple(
+                str(arg).replace(GRADER_PLACEHOLDER, grader) for arg in entry.get("cmd") or ()
+            ),
+            bool(entry.get("shell", False)),
+        )
         for entry in entries
         if isinstance(entry, dict)
     ]

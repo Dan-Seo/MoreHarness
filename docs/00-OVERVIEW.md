@@ -73,6 +73,7 @@ harness converge              구현 후 게이트. 커버리지·드리프트·
 harness ship                  통합·배포 게이트
 harness learn                 knowledge card 승격/폐기
 harness eval run              회귀·능력 평가
+harness eval import           외부 벤치마크 → fixture 변환
 harness status                현재 run 상태, open_debts, human_required
 harness doctor                일관성 검사 및 복구
 ```

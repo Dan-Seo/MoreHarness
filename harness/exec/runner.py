@@ -3,7 +3,7 @@
 docs/03 의 상태 기계와 docs/06 의 판정 순서를 그대로 따른다. 이 모듈은 순서를 지키고
 이벤트를 남길 뿐, 판정 자체는 하지 않는다 — 그것은 `verify` 와 `handoff` 의 몫이다.
 
-`safe` 와 `worktree` 를 실행한다. `container` 와 `unsafe` 는 거부한다 — 제공하지 못하는
+`safe` · `worktree` · `container` 를 실행한다. `unsafe` 는 거부한다 — 제공하지 못하는
 격리를 제공한다고 말하지 않는다 (docs/05 의 표현 규약).
 
 쓰기 순서는 언제나 journal append + fsync → state 갱신이다. `store.append` 가 그 순서를
@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -38,7 +39,11 @@ from harness.store import Store
 STDERR_TAIL_CHARS = 2000
 
 # docs/05 — 나머지 프로파일은 거부한다. container 는 M8 이고, unsafe 는 아직 없다.
-SUPPORTED_PROFILES = (ExecutionProfile.SAFE, ExecutionProfile.WORKTREE)
+SUPPORTED_PROFILES = (
+    ExecutionProfile.SAFE,
+    ExecutionProfile.WORKTREE,
+    ExecutionProfile.CONTAINER,
+)
 
 # agent 실행은 끝났고 verdict 는 없는 state. 워크트리가 남아 있으면 검증부터 재개한다 (docs/10).
 RESUMABLE = (State.EXECUTED, State.VERIFYING, State.REVIEWING, State.REPAIRING)
@@ -107,6 +112,9 @@ def run_dag(
             f"{config.default_profile} 프로파일은 아직 실행할 수 없다. "
             "제공하지 못하는 격리를 제공한다고 말하지 않는다 (docs/05)"
         )
+
+    if config.default_profile is ExecutionProfile.CONTAINER and config.container is None:
+        raise HarnessError("container 프로파일인데 config 에 container 블록이 없다 (docs/05)")
 
     policy = CommandPolicy.from_config(
         config.command_policy, load_approvals(repo / HARNESS_DIR / "approved_commands.yaml")
@@ -552,12 +560,35 @@ class Runner:
         if failed:
             return AttemptOutcome(Verdict.BLOCKED, f"prerequisite: {failed[0].name}")
 
+        container = self._container_for(task)
+        if self._profile(task) is ExecutionProfile.CONTAINER:
+            if container is None:
+                return AttemptOutcome(
+                    Verdict.ERROR, "container 프로파일인데 config 에 container 블록이 없다"
+                )
+            if shutil.which(container.runtime) is None:
+                return AttemptOutcome(
+                    Verdict.BLOCKED, f"container runtime: {container.runtime} 을(를) 찾을 수 없다"
+                )
+
         report = self._adapter_for(task).preflight()
         if report.ok:
             return None
         if report.kind is PreflightKind.MISSING_PREREQUISITE:
+            # docs/05 — container 에서 agent CLI 는 이미지 안에 있고 호스트에 없을 수 있다.
+            if container is not None:
+                return None
             return AttemptOutcome(Verdict.BLOCKED, report.detail)
         return AttemptOutcome(Verdict.ERROR, report.detail)
+
+    def _profile(self, task: Task) -> ExecutionProfile:
+        return task.profile or self.config.default_profile
+
+    def _container_for(self, task: Task) -> Any:
+        """docs/05 — spec 은 container 프로파일에서만 요청에 실린다."""
+        if self._profile(task) is not ExecutionProfile.CONTAINER:
+            return None
+        return self.config.container
 
     def _post(self, task: Task, attempt: int, baseline, cwd: Path | str):
         """AC post 실행과 기록. 리뷰의 fixer 뒤에도 같은 경로로 다시 실행된다 (docs/06)."""
@@ -617,16 +648,18 @@ class Runner:
         prompt: str,
         repair: int = 0,
         outbox: Path | None = None,
+        adapter_name: str | None = None,
     ) -> AgentResult:
         outbox = outbox or workspace.outbox(attempt, repair)
         outbox.mkdir(parents=True, exist_ok=True)
-        adapter = self._adapter_for(task)
+        adapter = self._adapter_for(task, adapter_name)
         request = AgentRequest(
             task_id=task.id,
             prompt=prompt,
             workspace=workspace.path,
             outbox=outbox,
-            profile=task.profile or self.config.default_profile,
+            profile=self._profile(task),
+            container=self._container_for(task),
             allowed_tools=None,
             timeout_s=self.config.agent_timeout_s,
             env=self._env(task, outbox, attempt),
@@ -790,10 +823,11 @@ class Runner:
 
     # ----------------------------------------------------------------- 보조
 
-    def _adapter_for(self, task: Task) -> Any:
+    def _adapter_for(self, task: Task, name: str | None = None) -> Any:
+        """`name` 은 옵션 레이어가 다른 어댑터를 지정하는 확장점이다 (docs/06 의 adversarial)."""
         if self._fixed_adapter is not None:
             return self._fixed_adapter
-        name = task.agent or self.config.default_adapter
+        name = name or task.agent or self.config.default_adapter
         adapter = self._adapters.get(name)
         if adapter is None:
             entry = self.config.adapters[name]

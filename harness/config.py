@@ -16,7 +16,7 @@ from typing import Any, Mapping
 import yaml
 
 from harness.errors import ConfigError
-from harness.models import ExecutionProfile
+from harness.models import ContainerSpec, ExecutionProfile
 
 CONFIG_VERSION = 1
 HARNESS_DIR = ".harness"
@@ -57,6 +57,14 @@ class ContextConfig:
 
 
 @dataclass(frozen=True)
+class KnowledgeConfig:
+    """docs/08 이 소유하는 `knowledge` 키. 승격·폐기는 사람이 하고, 이 값들은 제안 기준이다."""
+
+    candidate_after: int = 2
+    retire_after_unused_runs: int = 10
+
+
+@dataclass(frozen=True)
 class AdapterConfig:
     name: str
     type: str
@@ -77,12 +85,15 @@ class Config:
     max_handoff_repairs: int
     blocked_signals: tuple[str, ...]
     max_review_waves: int  # docs/06 — bounded review wave 의 한도
+    adversarial_adapter: str | None  # docs/06 — adversarial 리뷰어만 쓰는 어댑터
     risk_rules: tuple[Mapping[str, Any], ...]  # docs/06 — 항목 검증은 risk 가 한다
     budget: BudgetConfig  # docs/06 — 예산 상한
     health_commands: tuple[tuple[str, ...], ...]  # docs/08 — converge 의 health 커맨드
     forbidden_paths: tuple[str, ...]  # docs/05 — 전역 금지 목록
     command_policy: Mapping[str, Any]  # 형태 검증은 policy 가 한다
+    container: ContainerSpec | None  # docs/05 — container 프로파일의 실행 계약
     context: ContextConfig  # docs/07 — 계층형 컨텍스트 예산
+    knowledge: KnowledgeConfig  # docs/08 — 지식 카드 제안 기준
     path: Path
 
 
@@ -120,6 +131,10 @@ def load(repo_root: Path | str) -> Config:
     except ValueError as exc:
         raise ConfigError(f"알 수 없는 프로파일: {defaults.get('profile')!r}") from exc
 
+    adversarial = data.get("adversarial_adapter")
+    if adversarial is not None and adversarial not in adapters:
+        raise ConfigError(f"adversarial_adapter {adversarial!r} 가 adapters 에 없다")
+
     max_parallel = defaults.get("max_parallel", 1)
     if not isinstance(max_parallel, int) or isinstance(max_parallel, bool) or max_parallel < 1:
         raise ConfigError(f"defaults.max_parallel 은 1 이상의 정수여야 한다: {max_parallel!r}")
@@ -147,6 +162,7 @@ def load(repo_root: Path | str) -> Config:
         ),
         blocked_signals=_string_list(data, "blocked_signals"),
         max_review_waves=_bounded_int(data, "max_review_waves", 2, minimum=1),
+        adversarial_adapter=adversarial,
         risk_rules=tuple(data.get("risk_rules") or ()),
         budget=_load_budget(data.get("budget")),
         health_commands=_argv_list(data, "health_commands"),
@@ -154,7 +170,9 @@ def load(repo_root: Path | str) -> Config:
             dict.fromkeys((*ALWAYS_FORBIDDEN, *_string_list(data, "forbidden_paths")))
         ),
         command_policy=data.get("command_policy") or {},
+        container=_load_container(data.get("container")),
         context=_load_context(data.get("context")),
+        knowledge=_load_knowledge(data.get("knowledge")),
         path=path,
     )
 
@@ -195,6 +213,49 @@ def _load_budget(raw: Any) -> BudgetConfig:
             raise ConfigError(f"budget.{key} 는 0 이상의 수여야 한다: {value!r}")
         fields[key] = value
     return BudgetConfig(**fields)
+
+
+def _load_knowledge(raw: Any) -> KnowledgeConfig:
+    """docs/08 — 두 값 모두 제안 기준이다. 자동 승격을 만드는 키는 없다."""
+    if raw is None:
+        return KnowledgeConfig()
+    if not isinstance(raw, dict):
+        raise ConfigError("knowledge 는 매핑이어야 한다")
+    fields = {}
+    for key in ("candidate_after", "retire_after_unused_runs"):
+        if key not in raw:
+            continue
+        value = raw[key]
+        if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+            raise ConfigError(f"knowledge.{key} 는 1 이상의 정수여야 한다: {value!r}")
+        fields[key] = value
+    return KnowledgeConfig(**fields)
+
+
+def _load_container(raw: Any) -> ContainerSpec | None:
+    """docs/05 가 소유하는 `container` 키. `image` 없는 선언은 설정 결함이다."""
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ConfigError("container 는 매핑이어야 한다")
+
+    image = raw.get("image")
+    if not isinstance(image, str) or not image:
+        raise ConfigError("container.image 는 필수다")
+
+    runtime = raw.get("runtime", "docker")
+    if not isinstance(runtime, str) or not runtime:
+        raise ConfigError(f"container.runtime 은 실행 파일 이름이어야 한다: {runtime!r}")
+
+    network = raw.get("network")
+    if network is not None and not isinstance(network, str):
+        raise ConfigError(f"container.network 는 문자열이거나 null 이다: {network!r}")
+
+    mounts = raw.get("mounts") or []
+    if not isinstance(mounts, list) or not all(isinstance(m, str) for m in mounts):
+        raise ConfigError("container.mounts 는 문자열 목록이어야 한다")
+
+    return ContainerSpec(image=image, runtime=runtime, network=network, mounts=tuple(mounts))
 
 
 def _load_context(raw: Any) -> ContextConfig:

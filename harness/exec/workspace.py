@@ -99,7 +99,11 @@ class Workspaces:
         죽은 attempt 의 워크트리를 재사용하지 않는다 (docs/10).
         """
         root = self.scratch / task_id
-        if (profile or self.profile) is not ExecutionProfile.WORKTREE:
+        # docs/05 — container 는 실행 방식이지 워크스페이스 배치가 아니다.
+        if (profile or self.profile) not in (
+            ExecutionProfile.WORKTREE,
+            ExecutionProfile.CONTAINER,
+        ):
             return Workspace(task_id, self.repo, None, root)
 
         with self._lock:

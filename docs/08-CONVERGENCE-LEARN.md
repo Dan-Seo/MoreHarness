@@ -198,6 +198,7 @@ waiver 없이 깨진 상태로 ship되는 경로는 없다.
 # .harness/knowledge/K-004.yaml
 id: K-004
 kind: pattern              # pattern | pitfall | convention
+rule: null                 # learn 이 제안한 카드의 원천 rule. 사람이 쓴 카드는 null 이다.
 scope: "src/api/**"
 claim: "이 저장소의 라우트 핸들러는 인증을 미들웨어에 위임하고 직접 검사하지 않는다"
 evidence:
@@ -211,8 +212,10 @@ uses: 0
 
 ### 승격과 폐기
 
-- **승격** — 사람이 승인하거나, 서로 다른 run에서 N회 독립 재현되면 `promoted`.
-- **폐기** — 오래 사용되지 않거나, 반증하는 관측이 나오면 `retired`.
+- **승격은 사람만 한다.** 서로 다른 run에서 반복 관측되는 것은 `candidate` 자격을 만들 뿐이며,
+  그것만으로 `promoted`가 되지 않는다.
+- **폐기도 사람이 한다.** 오래 사용되지 않거나 반증하는 관측이 나오면 하네스가 보고하고,
+  `retired`로 바꾸는 것은 사람의 명령이다.
 - `uses`는 컨텍스트에 실제로 포함된 횟수다. 쓰이지 않는 지식은 지식이 아니다.
 
 ### 절대 규칙
@@ -221,4 +224,38 @@ uses: 0
 - **지식은 acceptance criteria가 될 수 없다.** 관측에서 나온 경향을 판정 기준으로 승격시키면 하네스가 자기 편견을 검증하게 된다.
 - 지식 카드는 컨텍스트에서 **untrusted**다. 07 참조.
 
-`harness learn`은 완료된 run의 journal을 읽어 후보를 제안하고, 승격·폐기를 기록한다. 자동 승격은 하지 않는다.
+### `harness learn`
+
+완료된 run의 journal을 읽어 후보를 제안하고, 카드의 `uses`를 갱신하며, 폐기 대상을 보고한다.
+**상태를 바꾸는 것은 사람의 명령뿐이다.**
+
+| 커맨드 | 하는 일 |
+|---|---|
+| `harness learn` | 후보 제안 · `uses` 갱신 · 폐기 대상 보고 |
+| `harness learn promote K-004` | `status: promoted`로 기록 |
+| `harness learn retire K-004` | `status: retired`로 기록 |
+
+**후보의 원천은 반복된 review finding이다.** 서로 다른 run에서 같은 `rule`이
+`knowledge.candidate_after`회 이상 관측되면 그 rule로 `candidate` 카드를 만든다.
+
+- **같은 run 안의 반복은 한 번으로 센다.** 한 run의 여러 wave와 여러 리뷰어는 독립 관측이 아니다.
+- **`rule`이 카드와 관측을 잇는 키다.** 같은 `rule`의 카드가 이미 있으면 새로 만들지 않고
+  `evidence`에 `{run, task}`를 더한다.
+  `retired` 카드는 다시 후보가 되지 않는다 — 사람이 내린 판단을 하네스가 뒤집지 않는다.
+- `scope`는 그 rule이 지적한 파일들의 공통 디렉토리에 `/**`를 붙인 값이다.
+- `claim`은 `[NEEDS CLAIM]`으로 남긴다. **learn은 관측을 모을 뿐 문장을 지어내지 않는다.**
+- `kind`는 `pitfall`이다. 반복되는 지적은 패턴이 아니라 함정이다.
+
+**`uses`는 `context.manifest.json`의 L7 섹션 기록에서 센다.** 예산 때문에 탈락한 섹션은 세지
+않는다 — 프롬프트에 실제로 들어간 것만 사용이다. 실행 경로에 카운터를 심지 않는다 (11).
+
+폐기 보고 기준은 `knowledge.retire_after_unused_runs`다. `promoted` 카드가 그 수 이상의 run
+동안 한 번도 컨텍스트에 포함되지 않았으면 보고한다.
+
+### 08이 소유하는 config 키 — knowledge
+
+```yaml
+knowledge:
+  candidate_after: 2            # 서로 다른 run 에서 같은 rule 이 이만큼 반복되면 후보
+  retire_after_unused_runs: 10  # promoted 카드가 이만큼의 run 동안 안 쓰이면 폐기 보고
+```

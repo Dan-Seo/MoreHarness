@@ -363,4 +363,4 @@ adapters:                     # 최소 하나. type 이 필수이고
 
 - `defaults.adapter`가 `adapters`에 없으면 로드 실패다.
 - `profile: unsafe`는 `allow_unsafe: true` 없이 쓸 수 없다. 나머지 절반인 **CLI의 명시적 플래그**는 05가 canonical이다.
-- **모르는 최상위 키를 거부하지 않는다.** 뒤 마일스톤이 자기 키를 여기 더하며, 그 키의 canonical 정의는 그 기능을 소유한 문서에 있다 — `command_policy`·`ac_timeout_s`·`agent_timeout_s`·`max_attempts`·`max_handoff_repairs`·`blocked_signals`·`risk_rules`·`max_review_waves`·`budget`은 06이고, `forbidden_paths`는 05, `context`는 07, `health_commands`는 08이다.
+- **모르는 최상위 키를 거부하지 않는다.** 뒤 마일스톤이 자기 키를 여기 더하며, 그 키의 canonical 정의는 그 기능을 소유한 문서에 있다 — `command_policy`·`ac_timeout_s`·`agent_timeout_s`·`max_attempts`·`max_handoff_repairs`·`blocked_signals`·`risk_rules`·`max_review_waves`·`adversarial_adapter`·`budget`은 06이고, `forbidden_paths`와 `container`는 05, `context`는 07, `health_commands`와 `knowledge`는 08이다.

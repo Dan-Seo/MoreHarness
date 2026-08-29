@@ -27,8 +27,7 @@
 
 ```
 evals/fixtures/<case>/
-  seed/                   # 초기 저장소 상태
-  spec.yaml
+  seed/                   # 초기 저장소 전체
   tasks/                  # 선택. 없으면 하네스가 plan/tasks 를 만든다
   grader/
     hidden_ac.yaml        # 채점 기준
@@ -36,7 +35,7 @@ evals/fixtures/<case>/
   meta.yaml               # 난이도, 도메인, 예상 소요
 ```
 
-`seed/`는 초기 저장소 전체이므로 `.harness/`도 그 안에 있다. fixture가 자기 어댑터와 Command Policy를 선언하는 자리다.
+`seed/`는 초기 저장소 전체다. 그래서 `.harness/`도, `specs/<slug>/spec.yaml`(03의 파일 배치)도 그 안에 있다. `.harness/`는 fixture가 자기 어댑터와 Command Policy를 선언하는 자리다.
 
 ### `grader/expected.yaml` — 회귀 eval의 채점 기준
 
@@ -109,6 +108,9 @@ acceptance:
 ```
 
 - 항목의 모양은 task `acceptance` 와 같다 — argv 리스트가 기본이고 `shell` 은 선언해야 한다.
+- argv 항목의 `{grader}` 는 그 fixture 의 `grader/` 절대 경로로 치환된다. 채점에만 쓰는 자료를
+  트리에 심지 않고 참조하기 위한 것이다. 치환은 grader 실행에서만 일어나며 컨텍스트 조립에는
+  `grader/` 가 여전히 없다.
 - 실행 cwd 는 **채점 대상 트리**, 타임아웃은 config `ac_timeout_s` 다.
 - 전부 green 이면 그 실행은 grader 성공이다. `hidden_ac_pass_rate` 는 green AC 수 / 전체 AC 수다.
 - grader 커맨드도 Command Policy 를 통과한다 — materialize 된 저장소의 config 기준이다. 정책이 막으면 그 AC 는 red 이고 사유가 `eval.json` 에 남는다.
@@ -222,6 +224,48 @@ exec/* · context/*  ←  eval/*  ←  cli
 
 ## 외부 벤치마크
 
-SWE-bench 같은 외부 대형 벤치마크 연동은 **fixture 어댑터를 하나 더 만드는 문제**로 격리한다. 외부 벤치마크의 케이스 형식을 `evals/fixtures/<case>/` 구조로 변환하는 계층 하나면 나머지는 그대로 동작한다.
+외부 대형 벤치마크 연동은 **fixture 어댑터를 하나 더 만드는 문제**로 격리한다. 외부 벤치마크의 케이스 형식을 `evals/fixtures/<case>/` 구조로 변환하는 계층 하나면 나머지는 그대로 동작한다. 커널도 지표 정의도 바뀌지 않는다.
 
-커널도 지표 정의도 바뀌지 않으므로 Post-MVP(M8)로 둔다.
+```
+harness eval import --benchmark swebench --instances <jsonl> --repos <dir> --out <dir>
+```
+
+`--instances` 는 SWE-bench 인스턴스의 JSON Lines 파일이고, `--repos` 는 그 인스턴스들이 가리키는 저장소의 **로컬 체크아웃이 있는 디렉토리**다 (`<owner>__<name>` 또는 `<owner>/<name>`). **컨버터는 네트워크를 쓰지 않는다** — 받아오는 것은 사람이 미리 하고 컨버터는 변환만 한다.
+
+### 필드 대응
+
+| SWE-bench 필드 | fixture |
+|---|---|
+| `instance_id` | 케이스 디렉토리 이름 |
+| `repo` + `base_commit` | `seed/` — 로컬 체크아웃에서 그 커밋의 트리만 꺼낸다. `.git` 은 따라오지 않는다 |
+| `problem_statement` | `seed/specs/<instance_id>/spec.yaml` 의 R-001 |
+| `test_patch` | `grader/test_patch.diff` — **seed 에 넣지 않는다** |
+| `FAIL_TO_PASS` · `PASS_TO_PASS` | `grader/hidden_ac.yaml` 의 acceptance |
+| `version` · `environment_setup_commit` · `created_at` | `meta.yaml` |
+
+테스트가 hidden 인 것이 이 벤치마크의 본질이고 그것은 위 「hidden grader 의 절대 규칙」과 같은 규칙이다. 그래서 테스트 패치는 `grader/` 에 있고 채점 시점에만 적용된다.
+
+```yaml
+# grader/hidden_ac.yaml
+acceptance:
+  - cmd: ["git", "apply", "{grader}/test_patch.diff"]
+  - cmd: ["python", "-m", "pytest", "-q", "<FAIL_TO_PASS ...>"]
+  - cmd: ["python", "-m", "pytest", "-q", "<PASS_TO_PASS ...>"]
+```
+
+- 첫 항목이 red 면 채점 자체가 성립하지 않은 것이므로 red 가 맞다.
+- FAIL_TO_PASS 와 PASS_TO_PASS 를 각각 한 커맨드로 묶는다. 그래야 `grader_success_rate` 가 그 벤치마크 자신의 성공 정의(F2P 전부 통과 ∧ P2P 무회귀)와 같아진다.
+- 테스트 식별자는 pytest node id 형식이다. 자기 러너를 쓰는 저장소는 생성된 `hidden_ac.yaml` 을 사람이 고친다. **컨버터는 변환기이지 벤치마크 실행기가 아니다** — 파이썬 환경 준비는 컨버터의 일이 아니다.
+
+### 만들어지는 task
+
+요구사항 하나(R-001)와 task 하나(T-001)를 만들고 **그 task 에 보이는 AC 는 없다.** 채점 기준을 숨기는 것이 이 벤치마크의 본질이므로 하네스가 가진 증거는 diff 와 리뷰뿐이다. 이것은 컨버터의 결함이 아니라 이 벤치마크에서 하네스가 실제로 놓인 조건이며, `escape_rate` 가 그것을 드러낸다.
+
+`grader/expected.yaml` 은 만들지 않는다 — 외부 벤치마크 fixture 는 능력 eval 용이고 회귀 eval 은 `mock` 으로 돈다.
+
+### 건너뛰기와 멱등성
+
+- 로컬 체크아웃이 없거나 `base_commit` 이 그 체크아웃에 없으면 **그 instance 만 건너뛰고 사유를 보고한다.** 하나가 없다고 전체 변환이 실패하지 않는다.
+- `FAIL_TO_PASS` 와 `PASS_TO_PASS` 가 둘 다 비어 있으면 건너뛴다. 채점 기준 없는 fixture 는 만들지 않는다.
+- 같은 `--out` 에 다시 돌리면 결과가 같다. 이미 있는 케이스 디렉토리는 통째로 다시 쓴다.
+- `seed/.harness/` 는 컨버터가 기본값으로 만든다. 어댑터와 Command Policy 는 fixture 가 선언하는 것이므로 사람이 고쳐서 쓴다.

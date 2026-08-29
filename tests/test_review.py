@@ -4,10 +4,17 @@ M5 완료 기준을 여기서 증명한다 (docs/12) — `trivial` 선언 task �
 변경하면 자동으로 티어가 상향되어 리뷰되고, `risk_escalated` 이벤트로 확인된다.
 """
 
+import json
+
+import pytest
+import yaml
 from test_runner import ScriptedAdapter, commit, configure, task_of, write_task
 
+from harness.adapters import registry
+from harness.adapters.base import AgentResult, Capabilities, PreflightKind, PreflightReport
 from harness.config import load
 from harness.dag import Dag, load_tasks
+from harness.errors import ConfigError
 from harness.events import EventType
 from harness.exec.review import ReviewStage
 from harness.exec.runner import run_dag
@@ -273,3 +280,96 @@ def test_no_budget_means_no_checkpoint_noise(repo):
     store = go(repo, config, adapter)
 
     assert not events_of(store, EventType.BUDGET_CHECKPOINT)
+
+
+# --------------------------------------------------------------------------- cross-adapter
+
+
+class TaggedAdapter:
+    """어느 어댑터가 그 리뷰어를 돌렸는지 findings 의 rule 로 드러내는 테스트용 어댑터."""
+
+    def __init__(self, name, options):
+        self.name = name
+        self.tag = options["tag"]
+
+    def capabilities(self):
+        return Capabilities(False, False, False)
+
+    def preflight(self):
+        return PreflightReport(True, PreflightKind.OK, "ok")
+
+    def execute(self, request):
+        target = request.workspace / "src" / "plain.py"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("x = 1\n", encoding="utf-8")
+
+        request.outbox.mkdir(parents=True, exist_ok=True)
+        (request.outbox / "findings.json").write_text(
+            json.dumps(
+                {
+                    "schema": "harness.findings/v1",
+                    "task_id": request.task_id,
+                    "findings": [
+                        {
+                            "severity": "low",
+                            "rule": f"{self.tag}-note",
+                            "file": "src/plain.py",
+                            "line": 1,
+                            "message": "m",
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        return AgentResult(0, "", "", None, None, 0.0, None, None, None)
+
+
+@pytest.fixture
+def tagged_type():
+    registry.register("tagged", lambda name, options: TaggedAdapter(name, options))
+    yield
+    registry._FACTORIES.pop("tagged", None)
+
+
+def critical_repo(repo, **extra):
+    data = {
+        "version": 1,
+        "defaults": {"adapter": "impl", "profile": "safe", "max_parallel": 1},
+        "adapters": {"impl": {"type": "tagged", "tag": "impl"}, "redteam": {"type": "tagged", "tag": "redteam"}},
+        "command_policy": {"default": "allow"},
+        **extra,
+    }
+    (repo / ".harness" / "config.yaml").write_text(yaml.safe_dump(data), encoding="utf-8")
+    write_task(repo, "T-001", risk="critical", acceptance=[])
+    return load(repo)
+
+
+def test_the_adversarial_reviewer_can_run_on_another_adapter(repo, tagged_type):
+    config = critical_repo(repo, adversarial_adapter="redteam")
+
+    store = go(repo, config=config)
+
+    by_reviewer = {
+        event.payload["reviewer"]: event.payload["rule"]
+        for event in events_of(store, EventType.REVIEW_FINDING)
+    }
+    assert by_reviewer["adversarial"] == "redteam-note"
+    # 나머지 리뷰어는 영향을 받지 않는다 (docs/06). 같은 (rule·file·line) 이므로 셋의
+    # finding 은 하나로 병합되고 첫 리뷰어 이름으로 남는다.
+    assert by_reviewer["spec"] == "impl-note"
+    assert set(by_reviewer) == {"spec", "adversarial"}
+
+
+def test_without_the_key_the_adversarial_reviewer_uses_the_task_adapter(repo, tagged_type):
+    config = critical_repo(repo)
+
+    store = go(repo, config=config)
+
+    rules = {event.payload["rule"] for event in events_of(store, EventType.REVIEW_FINDING)}
+    assert rules == {"impl-note"}
+
+
+def test_an_unknown_adversarial_adapter_is_a_config_error(repo, tagged_type):
+    with pytest.raises(ConfigError):
+        critical_repo(repo, adversarial_adapter="nobody")

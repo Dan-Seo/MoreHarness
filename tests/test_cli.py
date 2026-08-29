@@ -427,3 +427,40 @@ def test_doctor_clears_the_outbox_of_a_finished_task(repo, capsys):
 
     main(["doctor", "--repo", str(repo)])
     assert not outbox.exists()
+
+
+# --------------------------------------------------------------------------- learn (M8)
+
+
+def test_learn_proposes_and_records_the_human_decision(repo, capsys):
+    """docs/08 — 하네스는 제안하고, 승격은 사람의 명령으로만 일어난다."""
+    for index, task in enumerate(("T-001", "T-004"), start=1):
+        store = Store(repo / ".harness" / "runs" / f"run-{index}")
+        store.append(
+            EventType.REVIEW_FINDING,
+            {
+                "wave": 1,
+                "reviewer": "quality",
+                "severity": "high",
+                "rule": "hardcoded-secret",
+                "file": "src/api/db.py",
+                "line": 3,
+                "blocking": True,
+            },
+            task,
+            1,
+        )
+
+    assert main(["learn", "--repo", str(repo)]) == 0
+    assert "K-001" in capsys.readouterr().out
+
+    card = repo / ".harness" / "knowledge" / "K-001.yaml"
+    assert yaml.safe_load(card.read_text(encoding="utf-8"))["status"] == "candidate"
+
+    assert main(["learn", "promote", "K-001", "--repo", str(repo)]) == 0
+    assert yaml.safe_load(card.read_text(encoding="utf-8"))["status"] == "promoted"
+
+
+def test_learn_promote_needs_a_card_id(repo, capsys):
+    assert main(["learn", "promote", "--repo", str(repo)]) == 2
+    assert "카드 id" in capsys.readouterr().out

@@ -193,6 +193,7 @@ class ReviewStage:
                 workspace,
                 self._review_prompt(task, workspace, name, diff),
                 outbox=outbox,
+                adapter_name=self._reviewer_adapter(name),
             )
             findings = self._normalize(task, outbox / "findings.json", review_dir, name)
             if findings is None:
@@ -243,6 +244,11 @@ class ReviewStage:
             )
             for entry in data["findings"]
         ]
+
+    def _reviewer_adapter(self, name: str) -> str | None:
+        """docs/06 — `adversarial` 만 다른 어댑터로 갈 수 있다. 같은 모델이 자기 결과를
+        적대적으로 검토하면 같은 맹점을 공유하기 때문이다."""
+        return self.config.adversarial_adapter if name == "adversarial" else None
 
     def _blocking(self, finding: Finding) -> bool:
         """결정론적이다 — 리뷰어가 스스로 blocking 을 정하지 않는다 (docs/06)."""

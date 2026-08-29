@@ -19,6 +19,8 @@ import yaml
 from harness.git import git
 
 GRADER_DIR = "grader"
+# hidden AC 의 argv 에서 fixture 의 `grader/` 절대 경로로 치환된다 (docs/11).
+GRADER_PLACEHOLDER = "{grader}"
 SEED_DIR = "seed"
 TASKS_DIR = "tasks"
 

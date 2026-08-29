@@ -40,6 +40,7 @@ from harness.adapters.base import (
     RuntimeFailure,
     Usage,
 )
+from harness.models import ContainerSpec
 
 PLACEHOLDERS = ("workspace", "outbox", "prompt_file", "timeout_s", "task_id", "attempt")
 PROMPT_DELIVERY = ("argv", "stdin", "file")
@@ -96,6 +97,18 @@ class GenericCliAdapter:
         argv = [_fill(part, request, prompt_file) for part in self._argv(request)]
         if self.prompt_delivery == "argv":
             argv.append(request.prompt)
+
+        # docs/05 — container 프로파일이면 여기서 감싼다. 프롬프트가 argv 로 가는 경우도
+        # 커맨드의 일부이므로 감싸기 전에 붙어 있어야 한다.
+        if request.container is not None:
+            argv = container_argv(
+                request.container,
+                argv,
+                workspace=request.workspace,
+                outbox=request.outbox,
+                env_names=sorted(self._env(request)),
+                interactive=self.prompt_delivery == "stdin",
+            )
 
         started = time.monotonic()
         stdout, stderr, exit_code, failure = self._spawn(argv, request)
@@ -165,6 +178,35 @@ class GenericCliAdapter:
             path = outbox / locator if not Path(locator).is_absolute() else Path(locator)
             return _usage_at(_load(_read(path)), "")
         return None
+
+
+def container_argv(
+    spec: ContainerSpec,
+    argv: Sequence[str],
+    *,
+    workspace: Path,
+    outbox: Path,
+    env_names: Sequence[str],
+    interactive: bool,
+) -> list[str]:
+    """docs/05 의 조립 규칙. 어댑터는 이 규칙을 변형하지 않는다.
+
+    환경변수는 **이름만** 넘긴다. 값은 런타임 CLI 프로세스의 환경에서 전달되므로 프로세스
+    목록에 비밀이 남지 않는다. `.harness/` 는 어떤 경우에도 마운트하지 않는다.
+    """
+    out = [spec.runtime, "run", "--rm"]
+    for path in (workspace, outbox):
+        out += ["-v", f"{path}:{path}"]
+    out += ["-w", str(workspace)]
+    if interactive:
+        out.append("-i")
+    for name in env_names:
+        out += ["-e", name]
+    if spec.network:
+        out += ["--network", spec.network]
+    for mount in spec.mounts:
+        out += ["-v", mount]
+    return [*out, spec.image, *argv]
 
 
 def binary_prefix(options: Mapping[str, Any], default: str) -> list[str]:

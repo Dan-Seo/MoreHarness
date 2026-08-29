@@ -70,6 +70,7 @@ def test_agent_request_fields_match_the_protocol():
         "timeout_s",
         "env",
         "attempt",
+        "container",
     }
 
 
