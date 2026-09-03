@@ -28,6 +28,17 @@ def yaml_block(document: str, heading: str) -> dict:
     return yaml.safe_load(section.split("```yaml", 1)[1].split("```", 1)[0])
 
 
+def check_ignore(repo: Path, relative: str) -> bool:
+    import subprocess
+
+    return (
+        subprocess.run(
+            ["git", "check-ignore", "-q", relative], cwd=repo, capture_output=True
+        ).returncode
+        == 0
+    )
+
+
 def seed_run(repo, run_id=RUN_ID):
     store = Store(repo / ".harness" / "runs" / run_id)
     store.append(
@@ -142,6 +153,43 @@ def test_init_does_not_overwrite_existing_files(plain_repo):
 
     assert main(["init", "--repo", str(plain_repo)]) == 0
     assert constitution.read_text(encoding="utf-8") == "# 우리 프로젝트 규칙\n"
+
+
+def test_init_keeps_run_artifacts_out_of_git(plain_repo):
+    """docs/03 — 커밋되는 것은 사람이 쓴 입력뿐이다.
+
+    `git check-ignore` 로 확인한다. 파일의 존재가 아니라 패턴이 실제로 먹는지가 계약이다.
+    """
+    main(["init", "--repo", str(plain_repo)])
+
+    ignored = [
+        ".harness/runs/run-1/journal.jsonl",
+        ".harness/analyze.json",
+        ".harness/analyze-report.md",
+        ".harness/converge.json",
+        ".harness/coverage.md",
+        ".harness/ship-report.md",
+    ]
+    kept = [
+        ".harness/config.yaml",
+        ".harness/constitution.md",
+        ".harness/approved_commands.yaml",
+        ".harness/waivers.yaml",
+        ".harness/knowledge/K-001.yaml",
+    ]
+    for relative in ignored:
+        assert check_ignore(plain_repo, relative), f"{relative} 이 커밋 대상이 된다"
+    for relative in kept:
+        assert not check_ignore(plain_repo, relative), f"{relative} 이 커밋되지 않는다"
+
+
+def test_init_does_not_overwrite_an_edited_gitignore(plain_repo):
+    main(["init", "--repo", str(plain_repo)])
+    ignore = plain_repo / ".harness" / ".gitignore"
+    ignore.write_text("# 우리가 고친 것" + chr(10), encoding="utf-8")
+
+    assert main(["init", "--repo", str(plain_repo)]) == 0
+    assert ignore.read_text(encoding="utf-8") == "# 우리가 고친 것" + chr(10)
 
 
 def test_init_restores_a_missing_directory(plain_repo):

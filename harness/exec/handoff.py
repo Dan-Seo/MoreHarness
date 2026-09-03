@@ -25,6 +25,23 @@ CLAIM = "claim"
 HANDOFF = "handoff"
 
 
+# 프롬프트가 알려주는 산출물 계약. envelope 의 canonical 정의는 docs/03 이다.
+_OUTPUT_CONTRACT = """claim 은 `$HARNESS_OUTBOX/result.json`, handoff 는 `$HARNESS_OUTBOX/handoff.json` 이다.
+둘 다 optional 이며, 하네스는 이 보고가 아니라 자기 관측으로 판정한다.
+형식은 다음이고, 벗어나면 보고가 버려진다.
+`{{"schema": "harness.claim/v1", "task_id": "{task_id}", "outcome_claim": "implemented|blocked|infeasible", "blocked_hint": "..."}}`
+`{{"schema": "harness.handoff/v1", "task_id": "{task_id}", "<필드>": ...}}`"""
+
+
+def output_contract(task_id: str) -> str:
+    """경로와 **envelope 형태**를 함께 알려준다 (docs/04 Outbox 규약).
+
+    형태를 모르는 agent 는 자기 방식대로 쓰고, 그 결과는 `*.invalid.json` 이 된다.
+    커널의 프롬프트와 계층형 컨텍스트(docs/07)가 같은 문장을 써야 하므로 여기 한 곳에만 둔다.
+    """
+    return _OUTPUT_CONTRACT.format(task_id=task_id)
+
+
 @dataclass(frozen=True)
 class Artifact:
     """정규화 결과.

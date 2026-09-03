@@ -53,7 +53,9 @@ REQUIRED_PAYLOAD_KEYS: dict[EventType, frozenset[str]] = {
         {"context_manifest_ref", "prompt_ref", "effective_risk", "base"}
     ),
     EventType.AGENT_STARTED: frozenset({"adapter", "workspace", "outbox"}),
-    EventType.AGENT_FINISHED: frozenset({"exit_code", "duration_s", "usage", "runtime_failure"}),
+    EventType.AGENT_FINISHED: frozenset(
+        {"exit_code", "duration_s", "usage", "runtime_failure", "transcript_ref"}
+    ),
     EventType.AGENT_EXIT_NONZERO: frozenset({"exit_code", "stderr_tail"}),
     EventType.CLAIM_RECEIVED: frozenset({"outcome_claim"}),
     EventType.CLAIM_REJECTED: frozenset({"error", "path"}),

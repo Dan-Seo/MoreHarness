@@ -271,7 +271,7 @@ state.json      fold(journal) 의 스냅샷              <- 파생 캐시
 | `command_policy_decision` | 커맨드 실행 직전 | `cmd`, `verdict`, `rule`, `approver` |
 | `task_dispatched` | 디스패치 | `context_manifest_ref`, `prompt_ref`, `effective_risk`, `base`(dispatch 시점 HEAD — diff 관측의 기준, 06 참조) |
 | `agent_started` | 프로세스 시작 | `adapter`, `workspace`, `outbox` |
-| `agent_finished` | 프로세스 종료 | `exit_code`, `duration_s`, `usage`(미보고 시 `null`), `runtime_failure` |
+| `agent_finished` | 프로세스 종료 | `exit_code`, `duration_s`, `usage`(미보고 시 `null`), `runtime_failure`, `transcript_ref` |
 | `agent_exit_nonzero` | exit code ≠ 0 | `exit_code`, `stderr_tail` |
 | `claim_received` | claim 정규화 통과 | `outcome_claim` |
 | `claim_rejected` | claim schema 위반 | `error`, `path` |
@@ -303,6 +303,7 @@ state.json      fold(journal) 의 스냅샷              <- 파생 캐시
 ```
 <repo>/
   .harness/                       # 하네스 전용 control-plane
+    .gitignore                    # run 산출물은 커밋되지 않는다 — init 이 만든다
     config.yaml                   # 하네스가 항상 메인 저장소에서 읽는다
     constitution.md
     approved_commands.yaml
@@ -321,7 +322,7 @@ state.json      fold(journal) 의 스냅샷              <- 파생 캐시
         handoff.json    | handoff.invalid.json
         verification.json
         review/wave-1/*.json
-        transcript.log
+        transcript/<outbox 이름>.log   # dispatch 마다 하나 — agent 의 stdout/stderr
   specs/<slug>/spec.yaml
   tasks/T-###.task.yaml
   evals/fixtures/<case>/
@@ -341,6 +342,18 @@ state.json      fold(journal) 의 스냅샷              <- 파생 캐시
 하네스는 `constitution.md`와 `config.yaml`을 **항상 메인 저장소에서 읽고, 워크트리에서는 절대 읽지 않는다.** 워크트리의 사본은 agent가 수정할 수 있는 저장소 콘텐츠이기 때문이다.
 
 `.harness/**`는 전역 `forbidden_paths`에 항상 포함된다.
+
+`transcript/`의 파일 이름은 그 dispatch가 쓴 **outbox 디렉토리 이름**이다 — `attempt-2`,
+`attempt-1-repair-1`, `attempt-1-review-1-spec`. 한 task가 여러 번 dispatch되므로 이름이
+겹치면 무엇을 보고 있는지 알 수 없다. 내용은 어댑터가 수집한 stdout과 stderr이며, 하네스는
+이것을 **판정에 쓰지 않는다.** 남기는 이유는 조용히 실패한 agent(권한 거부, 턴 소진)의
+사후 진단이 그 밖에서는 불가능하기 때문이다. `agent_finished`의 `transcript_ref`가 경로를
+나른다.
+
+커밋되는 것은 사람이 쓴 입력(`config.yaml`, `constitution.md`, `approved_commands.yaml`,
+`waivers.yaml`, `knowledge/`)뿐이고 run 산출물(`runs/`, analyze·converge·ship 의 기록)은
+아니다. `harness init`이 그 경계를 `.harness/.gitignore`로 만든다. 이미 있으면 건드리지
+않는다 — 사람이 고친 파일이다.
 
 ### `config.yaml` — canonical
 

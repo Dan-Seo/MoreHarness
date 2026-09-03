@@ -179,7 +179,13 @@ def test_lifecycle_states_follow_the_state_machine(tmp_path):
 
     store.append(
         EventType.AGENT_FINISHED,
-        {"exit_code": 0, "duration_s": 1.0, "usage": None, "runtime_failure": None},
+        {
+            "exit_code": 0,
+            "duration_s": 1.0,
+            "usage": None,
+            "runtime_failure": None,
+            "transcript_ref": None,
+        },
         task_id="T-001",
         attempt=1,
     )
@@ -279,7 +285,13 @@ def test_evidence_only_events_do_not_change_state(tmp_path):
     start_run(store)
     store.append(
         EventType.AGENT_FINISHED,
-        {"exit_code": 1, "duration_s": 1.0, "usage": None, "runtime_failure": None},
+        {
+            "exit_code": 1,
+            "duration_s": 1.0,
+            "usage": None,
+            "runtime_failure": None,
+            "transcript_ref": None,
+        },
         task_id="T-001",
         attempt=1,
     )
@@ -327,7 +339,13 @@ def build_full_journal(store):
         )
         store.append(
             EventType.AGENT_FINISHED,
-            {"exit_code": 0, "duration_s": 0.5, "usage": None, "runtime_failure": None},
+            {
+                "exit_code": 0,
+                "duration_s": 0.5,
+                "usage": None,
+                "runtime_failure": None,
+                "transcript_ref": None,
+            },
             task_id=task_id,
             attempt=1,
         )

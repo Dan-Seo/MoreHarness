@@ -159,6 +159,19 @@ def test_the_prompt_marks_sections_and_pins_the_guard(repo):
     assert "## [L3 · untrusted] docs/GUIDE.md#api-layer" in built.prompt
 
 
+def test_the_built_prompt_shows_the_claim_and_handoff_envelope(repo):
+    """docs/04 Outbox 규약 — 계층형 프롬프트도 형태를 알려준다.
+
+    커널의 프롬프트와 이 프롬프트가 같은 계약을 말해야 한다. 어느 쪽으로 dispatch
+    되었는지에 따라 agent 가 다른 형식으로 쓰면 그것은 계약이 아니다.
+    """
+    built = build(repo, make_task())
+
+    assert "harness.claim/v1" in built.prompt
+    assert "harness.handoff/v1" in built.prompt
+    assert "outcome_claim" in built.prompt
+
+
 def test_upstream_output_is_split_by_provenance(repo, tmp_path):
     run_dir = tmp_path / "run"
     upstream = run_dir / "tasks" / "T-000"

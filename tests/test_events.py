@@ -13,7 +13,7 @@ CANONICAL_EVENTS = {
     "command_policy_decision": {"cmd", "verdict", "rule", "approver"},
     "task_dispatched": {"context_manifest_ref", "prompt_ref", "effective_risk", "base"},
     "agent_started": {"adapter", "workspace", "outbox"},
-    "agent_finished": {"exit_code", "duration_s", "usage", "runtime_failure"},
+    "agent_finished": {"exit_code", "duration_s", "usage", "runtime_failure", "transcript_ref"},
     "agent_exit_nonzero": {"exit_code", "stderr_tail"},
     "claim_received": {"outcome_claim"},
     "claim_rejected": {"error", "path"},
@@ -115,7 +115,13 @@ def test_required_key_may_hold_null():
         run_id="run-1",
         seq=1,
         type=EventType.AGENT_FINISHED,
-        payload={"exit_code": 0, "duration_s": 1.5, "usage": None, "runtime_failure": None},
+        payload={
+            "exit_code": 0,
+            "duration_s": 1.5,
+            "usage": None,
+            "runtime_failure": None,
+            "transcript_ref": None,
+        },
         task_id="T-001",
         attempt=1,
     )

@@ -677,6 +677,9 @@ class Runner:
             attempt,
         )
         result = adapter.execute(request)
+        transcript = write_transcript(
+            self.store.run_dir / "tasks" / task.id, outbox.name, adapter.name, result
+        )
         self.store.append(
             EventType.AGENT_FINISHED,
             {
@@ -684,6 +687,7 @@ class Runner:
                 "duration_s": result.duration_s,
                 "usage": _usage(result),
                 "runtime_failure": str(result.runtime_failure) if result.runtime_failure else None,
+                "transcript_ref": str(transcript),
             },
             task.id,
             attempt,
@@ -817,11 +821,7 @@ class Runner:
             body = _read(workspace.path / relative)
             if body:
                 sections.append(f"## {relative}\n\n```\n{body}\n```")
-        sections.append(
-            "## 산출물\n\n"
-            "claim 은 `$HARNESS_OUTBOX/result.json`, handoff 는 `$HARNESS_OUTBOX/handoff.json` 이다.\n"
-            "둘 다 optional 이며, 하네스는 이 보고가 아니라 자기 관측으로 판정한다."
-        )
+        sections.append("## 산출물\n\n" + handoff_module.output_contract(task.id))
         path.write_text("\n\n".join(s for s in sections if s) + "\n", encoding="utf-8")
         return path, None
 
@@ -864,6 +864,28 @@ def _run_dir(repo: Path, run_id: str | None, resume: bool = False) -> Path:
         suffix += 1
         candidate = runs / f"{stamp}-{suffix}"
     return candidate
+
+
+def write_transcript(task_dir: Path, label: str, adapter_name: str, result: AgentResult) -> Path:
+    """agent 의 stdout/stderr 를 dispatch 단위로 남긴다 (docs/03 의 파일 배치).
+
+    `label` 은 그 dispatch 의 outbox 디렉토리 이름이다 — 한 task 가 여러 번 dispatch
+    되므로 이름이 겹치면 무엇을 보고 있는지 알 수 없다. 판정에는 쓰지 않는다. 조용히
+    실패한 agent(권한 거부, 턴 소진)를 사후에 진단할 길이 stdout 밖에 없어서 남긴다.
+    """
+    directory = task_dir / "transcript"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{label}.log"
+    failure = str(result.runtime_failure) if result.runtime_failure else "none"
+    header = (
+        f"# adapter={adapter_name} exit={result.exit_code} "
+        f"duration_s={result.duration_s:.3f} runtime_failure={failure}"
+    )
+    path.write_text(
+        "\n".join([header, "## stdout", result.stdout, "## stderr", result.stderr, ""]),
+        encoding="utf-8",
+    )
+    return path
 
 
 def _outbox_footer(outbox: Path) -> str:

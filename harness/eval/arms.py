@@ -23,7 +23,7 @@ from harness.dag import Dag, load_tasks
 from harness.errors import HarnessError
 from harness.eval.fixtures import GRADER_DIR, GRADER_PLACEHOLDER, Fixture, materialize
 from harness.events import EventType
-from harness.exec.runner import ENV_PASSTHROUGH, run_dag
+from harness.exec.runner import ENV_PASSTHROUGH, run_dag, write_transcript
 from harness.exec.verify import GREEN, RED
 from harness.exec.workspace import integration_branch
 from harness.git import git
@@ -359,6 +359,11 @@ def _run_raw(repo: Path, config: Config, run_id: str, scratch: Path) -> Store:
         {
             "exit_code": result.exit_code,
             "duration_s": result.duration_s,
+            "transcript_ref": str(
+                write_transcript(
+                    store.run_dir / "tasks" / "RAW", "attempt-1", adapter.name, result
+                )
+            ),
             "usage": None
             if usage is None
             else {

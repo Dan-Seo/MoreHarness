@@ -159,6 +159,7 @@ adapters:
 - attempt마다 **새 디렉토리**를 만든다. 이전 attempt의 산출물이 다음 판정에 섞이지 않는다.
 - **워크스페이스 밖이고 `.harness/` 밖이다.** 저장소 밖이므로 agent가 여기에 쓴 것은 `git diff`에 나타나지 않는다. claim 파일이 diff를 오염시키지 않는 이유다.
 - agent는 경로를 `$HARNESS_OUTBOX` 환경변수로 받고, **하네스가 dispatch 시점에 프롬프트 말미에 붙이는 절대 경로**로도 받는다. 도구 allowlist 가 좁은 CLI agent 는 자기 환경변수를 읽을 수 없어 환경변수만으로는 경로를 모른다.
+- 프롬프트는 경로와 함께 **claim·handoff envelope 의 형태**를 알려준다 — 03 의 두 예시가 canonical 이다. 형태를 모르는 agent 는 자기 방식대로 쓰고, 그 결과는 `*.invalid.json` 이 된다. 판정에는 영향이 없지만 (claim 은 optional) 다음 task 가 쓸 handoff 가 매번 버려진다.
 - 전체 크기 상한을 둔다. 초과분은 잘라내고 `protocol_violation`으로 기록한다.
 - 하네스가 읽어 정규화·검증한 뒤에만 `.harness/runs/<run-id>/tasks/<task-id>/`로 승격한다. **agent 산출물이 control-plane에 직접 들어가는 경로는 없다.**
 

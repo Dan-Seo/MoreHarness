@@ -6,6 +6,7 @@ M1 완료 기준 다섯 가지와 M2 완료 기준 두 가지를 여기서 증�
 import re
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 import yaml
@@ -82,7 +83,7 @@ class ScriptedAdapter:
         failure = step.get("runtime_failure")
         return AgentResult(
             exit_code=int(step.get("exit_code", 0)),
-            stdout="",
+            stdout=step.get("stdout", ""),
             stderr=step.get("stderr", ""),
             raw_claim_path=paths["claim"],
             raw_handoff_path=paths["handoff"],
@@ -219,6 +220,68 @@ def test_every_dispatched_prompt_names_the_outbox_by_absolute_path(repo):
     for request in adapter.requests:
         assert str(request.outbox) in request.prompt
         assert request.env["HARNESS_OUTBOX"] == str(request.outbox)
+
+
+def test_every_dispatch_leaves_a_transcript_in_the_control_plane(repo):
+    """docs/03 파일 배치 — agent 의 stdout/stderr 를 dispatch 단위로 남긴다.
+
+    조용히 실패한 agent(권한 거부, 턴 소진)는 stdout 밖에서는 진단할 수 없다.
+    2026-09-03 능력 eval 에서 리뷰어가 왜 findings.json 을 못 썼는지 알아내려면 수동
+    probe 가 필요했다. 판정에는 쓰지 않는다 — 사후 진단용이다.
+    """
+    config = configure(repo)
+    write_task(repo, "T-001")
+    adapter = ScriptedAdapter(
+        [{"files": {"a.py": "1" + chr(10)}, "stdout": "denied: Write", "stderr": "boom"}]
+    )
+
+    store = go(repo, config, adapter=adapter)
+
+    finished = [e for e in store.journal.read() if e.type is EventType.AGENT_FINISHED]
+    assert len(finished) == 1
+    transcript = Path(finished[0].payload["transcript_ref"])
+    assert transcript.is_file()
+    body = transcript.read_text(encoding="utf-8")
+    assert "denied: Write" in body and "boom" in body
+    assert transcript.parent == store.run_dir / "tasks" / "T-001" / "transcript"
+
+
+def test_two_dispatches_of_one_task_get_separate_transcripts(repo):
+    """이름이 겹치면 무엇을 보고 있는지 알 수 없다 — 이름은 그 dispatch 의 outbox 다."""
+    config = configure(repo)
+    write_task(repo, "T-001", outputs={"required": ["public_api"]})
+    adapter = ScriptedAdapter(
+        [
+            {"files": {"a.py": "x" + chr(10)}, "stdout": "구현"},  # handoff 없음
+            {"handoff": HANDOFF, "stdout": "복구"},  # 좁은 fixer
+        ]
+    )
+
+    store = go(repo, config, adapter=adapter)
+
+    directory = store.run_dir / "tasks" / "T-001" / "transcript"
+    names = sorted(p.name for p in directory.iterdir())
+    assert names == ["attempt-1-repair-1.log", "attempt-1.log"]
+    assert "구현" in (directory / "attempt-1.log").read_text(encoding="utf-8")
+    assert "복구" in (directory / "attempt-1-repair-1.log").read_text(encoding="utf-8")
+
+
+def test_the_prompt_shows_the_claim_and_handoff_envelope(repo):
+    """docs/04 Outbox 규약 — 경로만으로는 부족하다. 형태를 모르면 형식을 추측한다.
+
+    2026-09-03 능력 eval 에서 agent 가 처음 claim 을 썼고, 형태를 추측해 쓴 결과가
+    `claim.invalid.json` 이었다.
+    """
+    config = configure(repo)
+    write_task(repo, "T-001")
+    adapter = ScriptedAdapter([{"files": {"a.py": "1" + chr(10)}}])
+
+    go(repo, config, adapter=adapter)
+
+    prompt = adapter.requests[0].prompt
+    assert "harness.claim/v1" in prompt
+    assert "harness.handoff/v1" in prompt
+    assert "outcome_claim" in prompt
 
 
 def test_windows_system_variables_reach_the_agent(repo, monkeypatch):

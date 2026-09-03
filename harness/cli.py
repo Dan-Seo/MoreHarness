@@ -84,7 +84,21 @@ DEFAULT_APPROVED_COMMANDS = """\
 approvals: []
 """
 
+# docs/03 — 커밋되는 것은 사람이 쓴 입력뿐이고 run 산출물은 아니다.
+DEFAULT_GITIGNORE = """\
+# .harness/ 의 run 산출물은 커밋하지 않는다 (docs/03 의 파일 배치).
+# 커밋되는 것은 config.yaml · constitution.md · approved_commands.yaml ·
+# waivers.yaml · knowledge/ 이며, 아래는 실행이 만들어 내는 것들이다.
+runs/
+analyze.json
+analyze-report.md
+converge.json
+coverage.md
+ship-report.md
+"""
+
 CONTROL_PLANE_FILES = {
+    ".gitignore": DEFAULT_GITIGNORE,
     "config.yaml": DEFAULT_CONFIG,
     "constitution.md": DEFAULT_CONSTITUTION,
     "approved_commands.yaml": DEFAULT_APPROVED_COMMANDS,
