@@ -169,6 +169,33 @@ def test_the_hidden_grader_judges_the_tree(tmp_path):
     assert (graded.green, graded.total) == (1, 1)
 
 
+def test_the_grader_placeholder_is_absolute_even_for_a_relative_fixture_path(tmp_path, monkeypatch):
+    """docs/11 — `{grader}` 는 fixture 의 `grader/` **절대 경로**로 치환된다.
+
+    grader 의 cwd 는 채점 대상 트리이므로, `--fixtures evals/` 처럼 상대 경로로 발견된
+    fixture 에서 상대 경로가 그대로 치환되면 트리 안의 있지도 않은 `evals/…` 를 찾게 된다.
+    """
+    case = write_fixture(
+        tmp_path,
+        "relative",
+        agent=AGENT_GOOD,
+        acceptance=[{"cmd": [sys.executable, "-c", CHECK], "expect_fail_before": True}],
+        hidden=None,
+    )
+    (case / "grader" / "check.py").write_text(CHECK, encoding="utf-8")
+    (case / "grader" / "hidden_ac.yaml").write_text(
+        yaml.safe_dump({"acceptance": [{"cmd": [sys.executable, "{grader}/check.py"]}]}),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    fixture = fixtures.load(Path("relative"))
+    repo = fixtures.materialize(fixture, tmp_path / "repo")
+    (repo / "value.txt").write_text("42", encoding="utf-8")
+
+    graded = arms.grade_in(fixture, repo, repo)
+    assert graded.success, [check.detail for check in graded.checks]
+
+
 def test_grader_commands_pass_command_policy(tmp_path):
     """docs/11 — 정책이 막으면 그 AC 는 red 이고 사유가 남는다. 실행되지 않는다."""
     case = write_fixture(

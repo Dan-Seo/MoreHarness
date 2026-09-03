@@ -35,7 +35,9 @@ class Fixture:
 
 
 def load(case_dir: Path | str) -> Fixture:
-    root = Path(case_dir)
+    # 절대 경로여야 한다 — grader 는 채점 대상 트리를 cwd 로 실행되므로 `{grader}` 치환에
+    # 상대 경로가 남으면 트리 안을 찾게 된다 (docs/11).
+    root = Path(case_dir).resolve()
     return Fixture(
         name=root.name,
         root=root,
