@@ -1,0 +1,7 @@
+# 능력 eval(M7)의 채점자. 요구사항 하나에 커맨드 하나 — hidden_ac_pass_rate 가 요구사항 단위가 된다.
+# {grader} 는 이 디렉토리의 절대 경로로 치환된다 (docs/11). cwd 는 채점 대상 트리다.
+acceptance:
+  - cmd: ["python", "-m", "pytest", "-q", "-c", "{grader}/pytest.ini", "--rootdir=.", "{grader}/test_hidden_slugify.py", "-k", "r001"]
+  - cmd: ["python", "-m", "pytest", "-q", "-c", "{grader}/pytest.ini", "--rootdir=.", "{grader}/test_hidden_slugify.py", "-k", "r002"]
+  - cmd: ["python", "-m", "pytest", "-q", "-c", "{grader}/pytest.ini", "--rootdir=.", "{grader}/test_hidden_slugify.py", "-k", "r003"]
+  - cmd: ["python", "-m", "pytest", "-q", "-c", "{grader}/pytest.ini", "--rootdir=.", "{grader}/test_hidden_slugify.py", "-k", "r004"]

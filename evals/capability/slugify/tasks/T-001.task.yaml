@@ -1,0 +1,11 @@
+# tasks/T-001.task.yaml — 계약은 docs/03 이 canonical 이다.
+id: T-001
+name: slugify
+kind: implementation
+satisfies: [R-001, R-002, R-003, R-004]
+risk: low
+allowed_paths: ["slugify.py"]
+acceptance:
+  - cmd: ["python", "-m", "pytest", "-q", "tests"]
+    expect_fail_before: true
+spec_hash: "sha256:617691d0e48d715e58b19a999bdf21d4cd68ea02315ca36d1fbd8d63ada76e9f"

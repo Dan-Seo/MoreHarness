@@ -1,0 +1,4 @@
+difficulty: easy
+domain: string-processing
+kind: capability
+asserts: 스펙의 네 요구사항(R-001~R-004)을 hidden 테스트로 채점한다. 보이는 AC 는 R-001 의 기본 사례 둘만 검사한다.

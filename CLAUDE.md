@@ -74,6 +74,6 @@ python -m harness analyze  # 구현 전 게이트 — 실패하면 run 이 막�
 python -m harness converge # 구현 후 게이트 — 커버리지·드리프트·debt
 python -m harness ship     # 통합 브랜치를 사용자 브랜치로 머지
 python -m harness learn    # 지식 카드 — 후보 제안, promote/retire 는 사람이 한다
-python -m harness eval run --fixtures evals/ --arms raw,harness-full --repeat 3
+python -m harness eval run --fixtures evals/capability --arms raw,harness-full --repeat 3
 python -m harness eval import --benchmark swebench --instances <jsonl> --repos <dir> --out <dir>
 ```

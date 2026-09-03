@@ -1,0 +1,571 @@
+{
+  "repeat": 3,
+  "workdir": "C:\\Users\\emper\\AppData\\Local\\Temp\\harness-eval-1jg6zt2q",
+  "arms": {
+    "raw": {
+      "grader_success_rate": 1.0,
+      "hidden_ac_pass_rate": 1.0,
+      "escape_rate": null,
+      "false_block_rate": null,
+      "runs": [
+        {
+          "fixture": "slugify",
+          "repo": "C:\\Users\\emper\\AppData\\Local\\Temp\\harness-eval-wl_bkjmz\\slugify-raw-1",
+          "run_id": "eval-slugify-raw-1",
+          "harness": null,
+          "grader_success": true,
+          "hidden_ac": {
+            "green": 4,
+            "total": 4
+          },
+          "checks": [
+            {
+              "cmd": [
+                "python",
+                "-m",
+                "pytest",
+                "-q",
+                "-c",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/pytest.ini",
+                "--rootdir=.",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/test_hidden_slugify.py",
+                "-k",
+                "r001"
+              ],
+              "exit_code": 0,
+              "green": true,
+              "detail": ""
+            },
+            {
+              "cmd": [
+                "python",
+                "-m",
+                "pytest",
+                "-q",
+                "-c",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/pytest.ini",
+                "--rootdir=.",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/test_hidden_slugify.py",
+                "-k",
+                "r002"
+              ],
+              "exit_code": 0,
+              "green": true,
+              "detail": ""
+            },
+            {
+              "cmd": [
+                "python",
+                "-m",
+                "pytest",
+                "-q",
+                "-c",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/pytest.ini",
+                "--rootdir=.",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/test_hidden_slugify.py",
+                "-k",
+                "r003"
+              ],
+              "exit_code": 0,
+              "green": true,
+              "detail": ""
+            },
+            {
+              "cmd": [
+                "python",
+                "-m",
+                "pytest",
+                "-q",
+                "-c",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/pytest.ini",
+                "--rootdir=.",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/test_hidden_slugify.py",
+                "-k",
+                "r004"
+              ],
+              "exit_code": 0,
+              "green": true,
+              "detail": ""
+            }
+          ]
+        },
+        {
+          "fixture": "slugify",
+          "repo": "C:\\Users\\emper\\AppData\\Local\\Temp\\harness-eval-wl_bkjmz\\slugify-raw-2",
+          "run_id": "eval-slugify-raw-2",
+          "harness": null,
+          "grader_success": true,
+          "hidden_ac": {
+            "green": 4,
+            "total": 4
+          },
+          "checks": [
+            {
+              "cmd": [
+                "python",
+                "-m",
+                "pytest",
+                "-q",
+                "-c",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/pytest.ini",
+                "--rootdir=.",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/test_hidden_slugify.py",
+                "-k",
+                "r001"
+              ],
+              "exit_code": 0,
+              "green": true,
+              "detail": ""
+            },
+            {
+              "cmd": [
+                "python",
+                "-m",
+                "pytest",
+                "-q",
+                "-c",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/pytest.ini",
+                "--rootdir=.",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/test_hidden_slugify.py",
+                "-k",
+                "r002"
+              ],
+              "exit_code": 0,
+              "green": true,
+              "detail": ""
+            },
+            {
+              "cmd": [
+                "python",
+                "-m",
+                "pytest",
+                "-q",
+                "-c",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/pytest.ini",
+                "--rootdir=.",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/test_hidden_slugify.py",
+                "-k",
+                "r003"
+              ],
+              "exit_code": 0,
+              "green": true,
+              "detail": ""
+            },
+            {
+              "cmd": [
+                "python",
+                "-m",
+                "pytest",
+                "-q",
+                "-c",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/pytest.ini",
+                "--rootdir=.",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/test_hidden_slugify.py",
+                "-k",
+                "r004"
+              ],
+              "exit_code": 0,
+              "green": true,
+              "detail": ""
+            }
+          ]
+        },
+        {
+          "fixture": "slugify",
+          "repo": "C:\\Users\\emper\\AppData\\Local\\Temp\\harness-eval-wl_bkjmz\\slugify-raw-3",
+          "run_id": "eval-slugify-raw-3",
+          "harness": null,
+          "grader_success": true,
+          "hidden_ac": {
+            "green": 4,
+            "total": 4
+          },
+          "checks": [
+            {
+              "cmd": [
+                "python",
+                "-m",
+                "pytest",
+                "-q",
+                "-c",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/pytest.ini",
+                "--rootdir=.",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/test_hidden_slugify.py",
+                "-k",
+                "r001"
+              ],
+              "exit_code": 0,
+              "green": true,
+              "detail": ""
+            },
+            {
+              "cmd": [
+                "python",
+                "-m",
+                "pytest",
+                "-q",
+                "-c",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/pytest.ini",
+                "--rootdir=.",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/test_hidden_slugify.py",
+                "-k",
+                "r002"
+              ],
+              "exit_code": 0,
+              "green": true,
+              "detail": ""
+            },
+            {
+              "cmd": [
+                "python",
+                "-m",
+                "pytest",
+                "-q",
+                "-c",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/pytest.ini",
+                "--rootdir=.",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/test_hidden_slugify.py",
+                "-k",
+                "r003"
+              ],
+              "exit_code": 0,
+              "green": true,
+              "detail": ""
+            },
+            {
+              "cmd": [
+                "python",
+                "-m",
+                "pytest",
+                "-q",
+                "-c",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/pytest.ini",
+                "--rootdir=.",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/test_hidden_slugify.py",
+                "-k",
+                "r004"
+              ],
+              "exit_code": 0,
+              "green": true,
+              "detail": ""
+            }
+          ]
+        }
+      ],
+      "metrics": {
+        "wall_time_s": {
+          "median": 271.411,
+          "min": 250.039,
+          "max": 354.84
+        },
+        "agent_time_s": {
+          "median": 270.48793730000034,
+          "min": 249.2461578999646,
+          "max": 353.6896710000001
+        },
+        "tokens_in": {
+          "median": 1012,
+          "min": 676,
+          "max": 1012
+        },
+        "tokens_out": {
+          "median": 18383,
+          "min": 16781,
+          "max": 24414
+        },
+        "cost_usd": {
+          "median": 2.2602135,
+          "min": 1.9931539999999999,
+          "max": 2.6700899999999996
+        },
+        "context_tokens": null
+      },
+      "first_pass_rate": null
+    },
+    "harness-full": {
+      "grader_success_rate": 1.0,
+      "hidden_ac_pass_rate": 1.0,
+      "escape_rate": 0.0,
+      "false_block_rate": null,
+      "runs": [
+        {
+          "fixture": "slugify",
+          "repo": "C:\\Users\\emper\\AppData\\Local\\Temp\\harness-eval-1jg6zt2q\\slugify-harness-full-1",
+          "run_id": "eval-slugify-harness-full-1",
+          "harness": "verified",
+          "grader_success": true,
+          "hidden_ac": {
+            "green": 4,
+            "total": 4
+          },
+          "checks": [
+            {
+              "cmd": [
+                "python",
+                "-m",
+                "pytest",
+                "-q",
+                "-c",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/pytest.ini",
+                "--rootdir=.",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/test_hidden_slugify.py",
+                "-k",
+                "r001"
+              ],
+              "exit_code": 0,
+              "green": true,
+              "detail": ""
+            },
+            {
+              "cmd": [
+                "python",
+                "-m",
+                "pytest",
+                "-q",
+                "-c",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/pytest.ini",
+                "--rootdir=.",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/test_hidden_slugify.py",
+                "-k",
+                "r002"
+              ],
+              "exit_code": 0,
+              "green": true,
+              "detail": ""
+            },
+            {
+              "cmd": [
+                "python",
+                "-m",
+                "pytest",
+                "-q",
+                "-c",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/pytest.ini",
+                "--rootdir=.",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/test_hidden_slugify.py",
+                "-k",
+                "r003"
+              ],
+              "exit_code": 0,
+              "green": true,
+              "detail": ""
+            },
+            {
+              "cmd": [
+                "python",
+                "-m",
+                "pytest",
+                "-q",
+                "-c",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/pytest.ini",
+                "--rootdir=.",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/test_hidden_slugify.py",
+                "-k",
+                "r004"
+              ],
+              "exit_code": 0,
+              "green": true,
+              "detail": ""
+            }
+          ]
+        },
+        {
+          "fixture": "slugify",
+          "repo": "C:\\Users\\emper\\AppData\\Local\\Temp\\harness-eval-1jg6zt2q\\slugify-harness-full-2",
+          "run_id": "eval-slugify-harness-full-2",
+          "harness": "verified",
+          "grader_success": true,
+          "hidden_ac": {
+            "green": 4,
+            "total": 4
+          },
+          "checks": [
+            {
+              "cmd": [
+                "python",
+                "-m",
+                "pytest",
+                "-q",
+                "-c",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/pytest.ini",
+                "--rootdir=.",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/test_hidden_slugify.py",
+                "-k",
+                "r001"
+              ],
+              "exit_code": 0,
+              "green": true,
+              "detail": ""
+            },
+            {
+              "cmd": [
+                "python",
+                "-m",
+                "pytest",
+                "-q",
+                "-c",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/pytest.ini",
+                "--rootdir=.",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/test_hidden_slugify.py",
+                "-k",
+                "r002"
+              ],
+              "exit_code": 0,
+              "green": true,
+              "detail": ""
+            },
+            {
+              "cmd": [
+                "python",
+                "-m",
+                "pytest",
+                "-q",
+                "-c",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/pytest.ini",
+                "--rootdir=.",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/test_hidden_slugify.py",
+                "-k",
+                "r003"
+              ],
+              "exit_code": 0,
+              "green": true,
+              "detail": ""
+            },
+            {
+              "cmd": [
+                "python",
+                "-m",
+                "pytest",
+                "-q",
+                "-c",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/pytest.ini",
+                "--rootdir=.",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/test_hidden_slugify.py",
+                "-k",
+                "r004"
+              ],
+              "exit_code": 0,
+              "green": true,
+              "detail": ""
+            }
+          ]
+        },
+        {
+          "fixture": "slugify",
+          "repo": "C:\\Users\\emper\\AppData\\Local\\Temp\\harness-eval-1jg6zt2q\\slugify-harness-full-3",
+          "run_id": "eval-slugify-harness-full-3",
+          "harness": "verified",
+          "grader_success": true,
+          "hidden_ac": {
+            "green": 4,
+            "total": 4
+          },
+          "checks": [
+            {
+              "cmd": [
+                "python",
+                "-m",
+                "pytest",
+                "-q",
+                "-c",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/pytest.ini",
+                "--rootdir=.",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/test_hidden_slugify.py",
+                "-k",
+                "r001"
+              ],
+              "exit_code": 0,
+              "green": true,
+              "detail": ""
+            },
+            {
+              "cmd": [
+                "python",
+                "-m",
+                "pytest",
+                "-q",
+                "-c",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/pytest.ini",
+                "--rootdir=.",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/test_hidden_slugify.py",
+                "-k",
+                "r002"
+              ],
+              "exit_code": 0,
+              "green": true,
+              "detail": ""
+            },
+            {
+              "cmd": [
+                "python",
+                "-m",
+                "pytest",
+                "-q",
+                "-c",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/pytest.ini",
+                "--rootdir=.",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/test_hidden_slugify.py",
+                "-k",
+                "r003"
+              ],
+              "exit_code": 0,
+              "green": true,
+              "detail": ""
+            },
+            {
+              "cmd": [
+                "python",
+                "-m",
+                "pytest",
+                "-q",
+                "-c",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/pytest.ini",
+                "--rootdir=.",
+                "C:\\Users\\emper\\Desktop\\Moreharness\\evals\\capability\\slugify\\grader/test_hidden_slugify.py",
+                "-k",
+                "r004"
+              ],
+              "exit_code": 0,
+              "green": true,
+              "detail": ""
+            }
+          ]
+        }
+      ],
+      "metrics": {
+        "wall_time_s": {
+          "median": 354.901,
+          "min": 324.497,
+          "max": 666.483
+        },
+        "agent_time_s": {
+          "median": 352.048342499882,
+          "min": 321.32544110005256,
+          "max": 660.5226550999796
+        },
+        "tokens_in": {
+          "median": 1156,
+          "min": 900,
+          "max": 2055
+        },
+        "tokens_out": {
+          "median": 23283,
+          "min": 21829,
+          "max": 44366
+        },
+        "cost_usd": {
+          "median": 3.18397375,
+          "min": 2.8668585,
+          "max": 5.5868605
+        },
+        "context_tokens": {
+          "median": 515,
+          "min": 515,
+          "max": 515
+        }
+      },
+      "first_pass_rate": 0.6666666666666666
+    }
+  },
+  "raw_workdir": "C:\\Users\\emper\\AppData\\Local\\Temp\\harness-eval-wl_bkjmz"
+}

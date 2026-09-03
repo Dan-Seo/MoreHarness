@@ -1,0 +1,35 @@
+# specs/slugify/spec.yaml — 계약은 docs/03 이 canonical 이다.
+slug: slugify
+intent: "URL 에 쓸 수 있는 슬러그를 만드는 slugify.py 모듈"
+requirements:
+  - id: R-001
+    statement: >-
+      slugify.py 는 slugify(text: str, max_length: int | None = None) -> str 를 제공한다.
+      결과는 소문자이고, ASCII 영숫자(a-z, 0-9)가 아닌 문자의 연속은 하이픈 하나로 바뀌며,
+      앞뒤 하이픈은 제거된다.
+      예: slugify("Hello, World!") == "hello-world",
+      slugify("  Multiple   spaces  ") == "multiple-spaces",
+      slugify("foo_bar.baz") == "foo-bar-baz".
+  - id: R-002
+    statement: >-
+      악센트가 붙은 문자는 NFKD 정규화로 분해해 기본 ASCII 문자만 남긴다.
+      ASCII 로 분해되지 않는 문자(한자·가나·이모지 등)는 영숫자가 아닌 문자와 같이 취급해 버린다.
+      예: slugify("Crème Brûlée") == "creme-brulee",
+      slugify("naïve café") == "naive-cafe",
+      slugify("日本語 text") == "text".
+  - id: R-003
+    statement: >-
+      max_length 가 주어지면 결과 길이는 max_length 이하다. 단어 중간에서 끊지 않는다 —
+      max_length 로 자른 지점이 단어 경계(하이픈)가 아니면, 잘린 부분 안의 마지막 하이픈 앞까지만 남긴다.
+      잘린 부분 안에 하이픈이 없으면 max_length 에서 그대로 자른다. 결과는 하이픈으로 끝나지 않는다.
+      max_length 가 1 미만이면 ValueError 를 올린다.
+      예: slugify("the quick brown fox", max_length=9) == "the-quick",
+      slugify("the quick brown fox", max_length=8) == "the",
+      slugify("abcdefghij", max_length=4) == "abcd",
+      slugify("hello world", max_length=6) == "hello".
+  - id: R-004
+    statement: >-
+      빈 문자열, 공백만 있는 문자열, 영숫자가 하나도 남지 않는 문자열은 예외 없이 "" 를 돌려준다.
+      max_length 가 있어도 같다.
+      예: slugify("") == "", slugify("   ") == "", slugify("!!!", max_length=3) == "".
+open_questions: []

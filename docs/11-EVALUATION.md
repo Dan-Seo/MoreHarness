@@ -191,10 +191,11 @@ grader 가 실행되는 cwd 는 **run 이 끝난 뒤 사용자가 갖게 되는 
 ## 실행과 보고
 
 ```
-harness eval run --fixtures evals/ --arms raw,harness-full --repeat 3
+harness eval run --fixtures evals/capability --arms raw,harness-full --repeat 3
 ```
 
 - `--fixtures <dir>` 는 `<dir>/<case>/seed/` 를 찾고, 없으면 `<dir>/fixtures/<case>/seed/` 를 찾는다.
+- 이 저장소는 회귀 fixture 를 `evals/fixtures/` 에, 능력 fixture 를 `evals/capability/` 에 둔다. 능력 eval 은 `hidden_ac.yaml` 이 비어 있는 fixture 를 거부하므로 둘을 한 디렉토리에 섞지 않는다.
 - 산출은 `--out` (기본: `--fixtures` 디렉토리) 에 쓰는 `eval-report.md` 와 `eval.json` 이다.
 - 실행 저장소들은 시스템 temp 의 작업 디렉토리에 남고, `eval.json` 이 그 경로를 기록한다. 실패를 파고들 때 journal 이 필요하기 때문이다.
 

@@ -1,0 +1,28 @@
+# .harness/config.yaml — 하네스가 항상 메인 저장소에서 읽는 control-plane 설정.
+# 키의 canonical 정의는 docs/03 의 `config.yaml — canonical` 이다.
+version: 1
+
+defaults:
+  adapter: claude
+  profile: worktree
+  max_parallel: 1
+
+allow_unsafe: false
+
+adapters:
+  claude:
+    type: claude_cli
+    extra_args: ["--permission-mode", "acceptEdits", "--allowedTools", "Bash(python -m pytest:*)", "--max-turns", "30"]
+
+agent_timeout_s: 900
+
+# 하네스가 실행하는 모든 커맨드가 이 정책을 통과한다 (docs/06).
+# 무엇이 자동 실행 승인되었는지는 여기 보이는 것이 전부다. 검토하고 고쳐서 쓴다.
+command_policy:
+  default: require_approval          # fail-closed
+  rules:                             # 첫 매치 우선
+    - {match: '^(npm|pnpm|yarn) (test|run (build|lint|typecheck))$', verdict: allow}
+    - {match: '^(pytest|python -m pytest)', verdict: allow}
+    - {match: '^git (status|diff|log)', verdict: allow}
+    - {match: 'rm\s+-rf|git\s+push\s+--force|git\s+reset\s+--hard|^sudo|DROP\s+DATABASE|id_rsa', verdict: deny}
+    - {match: '^(curl|wget|npm install|pip install|terraform apply|kubectl apply)', verdict: require_approval}
