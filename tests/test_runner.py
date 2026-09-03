@@ -203,6 +203,42 @@ def test_a_three_task_dag_runs_to_completion(repo):
     assert [task_of(store, t).state for t in ("T-001", "T-002", "T-003")] == [State.DONE] * 3
 
 
+def test_every_dispatched_prompt_names_the_outbox_by_absolute_path(repo):
+    """docs/04 Outbox 규약 — 경로는 환경변수 **와 프롬프트 말미의 절대 경로** 로 전달된다.
+
+    도구 allowlist 가 좁은 CLI agent 는 자기 환경변수를 읽을 수 없다. 프롬프트에 경로가
+    없으면 `$HARNESS_OUTBOX` 를 알아내려다 턴을 소진한다 (2026-09-03 능력 eval 에서 관측).
+    """
+    config = configure(repo)
+    write_task(repo, "T-001")
+    adapter = ScriptedAdapter([{"files": {"a.py": "1\n"}}])
+
+    go(repo, config, adapter=adapter)
+
+    assert adapter.requests
+    for request in adapter.requests:
+        assert str(request.outbox) in request.prompt
+        assert request.env["HARNESS_OUTBOX"] == str(request.outbox)
+
+
+def test_windows_system_variables_reach_the_agent(repo, monkeypatch):
+    """env 화이트리스트(docs/09)는 좁지만 Windows 의 SystemDrive/ProgramData 는 통과시킨다.
+
+    빠지면 자식 프로세스의 시스템 컴포넌트가 `%SystemDrive%` 를 문자 그대로 워크트리 안에
+    만들어 path_violation 이 난다 (2026-09-03 능력 eval 에서 관측).
+    """
+    monkeypatch.setenv("SystemDrive", "C:")
+    monkeypatch.setenv("ProgramData", "C:/ProgramData")
+    config = configure(repo)
+    write_task(repo, "T-001")
+    adapter = ScriptedAdapter([{"files": {"a.py": "1" + chr(10)}}])
+
+    go(repo, config, adapter=adapter)
+
+    env = adapter.requests[0].env
+    assert env["SystemDrive"] == "C:" and env["ProgramData"] == "C:/ProgramData"
+
+
 def test_the_run_is_bracketed_by_started_and_finished(repo):
     configure(repo)
     write_task(repo, "T-001", kind="analysis")

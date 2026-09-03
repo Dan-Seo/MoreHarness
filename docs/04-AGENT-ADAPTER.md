@@ -118,7 +118,7 @@ adapters:
     timeout_grace_s: 10
 ```
 
-- 구동: `<binary> -p --output-format json <extra_args...>` — 프롬프트는 **stdin**으로 준다.
+- 구동: `<binary> -p --output-format json <extra_args...> --add-dir <outbox>` — 프롬프트는 **stdin**으로 준다. outbox 는 워크스페이스 밖이므로(Outbox 규약) `--add-dir` 없이는 claude 가 거기에 쓰지 못한다 — `--permission-mode acceptEdits` 여도 cwd 밖 쓰기는 거부된다.
 - **usage 보고** — stdout 전체를 JSON 으로 파싱해 `usage.input_tokens` / `usage.output_tokens` / `total_cost_usd` 를 읽는다. 파싱에 실패하면 usage 는 `None` 이다. 추정하지 않는다.
 - **도구 화이트리스트** — `request.allowed_tools` 가 있으면 `--allowedTools <쉼표 연결>` 을 argv 에 추가한다. 현재 커널의 어떤 경로도 이 필드를 채우지 않는다 — 공급원(task 계약 또는 config)의 정의는 이 문서의 계약이 아니며, 정해지기 전까지 값은 항상 `None` 이다.
 - 세션 재사용은 지원하지 않는다 — task 단위 fresh context 가 원칙이다 (00 의 원칙 2).
@@ -158,7 +158,7 @@ adapters:
 
 - attempt마다 **새 디렉토리**를 만든다. 이전 attempt의 산출물이 다음 판정에 섞이지 않는다.
 - **워크스페이스 밖이고 `.harness/` 밖이다.** 저장소 밖이므로 agent가 여기에 쓴 것은 `git diff`에 나타나지 않는다. claim 파일이 diff를 오염시키지 않는 이유다.
-- agent는 `$HARNESS_OUTBOX` 환경변수로 경로를 받는다.
+- agent는 경로를 `$HARNESS_OUTBOX` 환경변수로 받고, **하네스가 dispatch 시점에 프롬프트 말미에 붙이는 절대 경로**로도 받는다. 도구 allowlist 가 좁은 CLI agent 는 자기 환경변수를 읽을 수 없어 환경변수만으로는 경로를 모른다.
 - 전체 크기 상한을 둔다. 초과분은 잘라내고 `protocol_violation`으로 기록한다.
 - 하네스가 읽어 정규화·검증한 뒤에만 `.harness/runs/<run-id>/tasks/<task-id>/`로 승격한다. **agent 산출물이 control-plane에 직접 들어가는 경로는 없다.**
 

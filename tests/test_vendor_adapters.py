@@ -83,13 +83,16 @@ def test_vendor_types_are_registered():
 
 
 def test_claude_builds_the_documented_argv_and_feeds_stdin(tmp_path):
-    """docs/04 — `<binary> -p --output-format json <extra_args...>`, 프롬프트는 stdin."""
+    """docs/04 — `<binary> -p --output-format json <extra_args...> --add-dir <outbox>`,
+    프롬프트는 stdin. outbox 는 워크스페이스 밖이라 `--add-dir` 없이는 claude 가 쓰지 못한다."""
     adapter = ClaudeCliAdapter(
         "claude", {"binary": script(tmp_path, ECHO), "extra_args": ["--model", "opus"]}
     )
     req = request(tmp_path, prompt="hello agent")
     adapter.execute(req)
-    assert argv_seen(req) == ["-p", "--output-format", "json", "--model", "opus"]
+    assert argv_seen(req) == [
+        "-p", "--output-format", "json", "--model", "opus", "--add-dir", str(req.outbox)
+    ]
     assert (req.outbox / "stdin.txt").read_text(encoding="utf-8") == "hello agent"
 
 

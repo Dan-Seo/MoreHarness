@@ -1,7 +1,8 @@
 """claude CLI 벤더 어댑터. docs/04 가 canonical 이다.
 
 `generic_cli` 위의 얇은 구성이다. 더 아는 것은 **usage 의 위치**(stdout JSON 의
-`usage`/`total_cost_usd`)와 **도구 화이트리스트 플래그**뿐이다. 그 밖의 계약은
+`usage`/`total_cost_usd`), **도구 화이트리스트 플래그**, 그리고 outbox 를 쓰기 가능하게
+하는 **`--add-dir`** 뿐이다. 그 밖의 계약은
 `generic_cli` 와 문자 그대로 같으며 conformance 스위트로 증명한다.
 """
 
@@ -44,9 +45,11 @@ class ClaudeCliAdapter(GenericCliAdapter):
         )
 
     def _argv(self, request: AgentRequest) -> Sequence[str]:
-        if not request.allowed_tools:
-            return self.command
-        return [*self.command, "--allowedTools", ",".join(request.allowed_tools)]
+        # docs/04 — outbox 는 워크스페이스 밖이라 `--add-dir` 없이는 claude 가 쓰지 못한다.
+        argv = [*self.command, "--add-dir", str(request.outbox)]
+        if request.allowed_tools:
+            argv += ["--allowedTools", ",".join(request.allowed_tools)]
+        return argv
 
     def _usage(self, stdout: str, outbox: Path) -> Usage | None:
         """stdout 전체가 claude 의 결과 JSON 이다. 아니면 usage 없음 — 추정하지 않는다."""

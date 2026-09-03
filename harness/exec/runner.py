@@ -58,6 +58,10 @@ ENV_PASSTHROUGH = (
     "LC_ALL",
     "SYSTEMROOT",
     "windir",
+    # 없으면 Windows 시스템 컴포넌트가 cwd(워크트리) 아래에 `%SystemDrive%` 를 문자 그대로
+    # 만들어 path_violation 이 난다 (2026-09-03 능력 eval 에서 관측).
+    "SystemDrive",
+    "ProgramData",
     "TEMP",
     "TMP",
     "TMPDIR",
@@ -655,7 +659,7 @@ class Runner:
         adapter = self._adapter_for(task, adapter_name)
         request = AgentRequest(
             task_id=task.id,
-            prompt=prompt,
+            prompt=prompt + _outbox_footer(outbox),
             workspace=workspace.path,
             outbox=outbox,
             profile=self._profile(task),
@@ -860,6 +864,15 @@ def _run_dir(repo: Path, run_id: str | None, resume: bool = False) -> Path:
         suffix += 1
         candidate = runs / f"{stamp}-{suffix}"
     return candidate
+
+
+def _outbox_footer(outbox: Path) -> str:
+    """docs/04 Outbox 규약 — 경로는 환경변수와 **프롬프트 말미의 절대 경로** 로 전달된다.
+
+    도구 allowlist 가 좁은 CLI agent 는 자기 환경변수를 읽을 수 없다. 모든 dispatch
+    (구현·리뷰·fixer·repair)가 이 한 곳을 지나므로 여기서 붙인다.
+    """
+    return f"\n## Outbox\n\n`$HARNESS_OUTBOX` = `{outbox}` — 산출물은 이 디렉토리에 쓴다.\n"
 
 
 def _outbox_artifacts(outbox: Path) -> tuple[Path | None, Path | None]:
