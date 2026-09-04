@@ -125,7 +125,7 @@ def test_init_writes_the_command_policy_documented_in_docs_06(plain_repo):
     06 소유 키이므로 03 의 뼈대에는 없고 06 이 canonical 이다.
     """
     main(["init", "--repo", str(plain_repo)])
-    documented = yaml_block("06-VERIFICATION-REVIEW.md", "### 설정")
+    documented = yaml_block("06-VERIFICATION-REVIEW.md", "### Configuration")
     assert written_config(plain_repo)["command_policy"] == documented["command_policy"]
 
 

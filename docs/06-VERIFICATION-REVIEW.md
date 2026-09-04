@@ -1,12 +1,12 @@
-# 06 · 검증과 리뷰
+# 06 · Verification and Review
 
-이 문서는 **판정 알고리즘과 Command Policy의 canonical 정의**를 갖는다.
+This document holds the **canonical definition of the adjudication algorithm and Command Policy**.
 
-## 판정의 원칙
+## The Principle of Adjudication
 
 > Agents propose. Harness verifies. **Evidence decides.**
 
-판정에 쓰이는 것은 하네스가 직접 만든 관측치뿐이다. agent의 claim, exit code, 산출물의 존재 여부는 그 자체로 결론이 되지 못한다.
+What is used for adjudication is only the observations the harness itself produced. An agent's claim, the exit code, and the presence or absence of outputs cannot become a conclusion in themselves.
 
 ---
 
@@ -14,24 +14,24 @@
 
 > **Agent-authored commands are untrusted input. Harness must authorize them before execution.**
 
-task 정의는 planner agent가 쓸 수 있고, 저장소 콘텐츠는 오염될 수 있다. 하네스가 실행하는 모든 커맨드는 실행 전에 정책을 통과해야 한다.
+A task definition can be written by a planner agent, and repository content can be contaminated. Every command the harness executes must go through the policy before execution.
 
-### 적용 대상
+### What It Applies To
 
-- acceptance criteria 커맨드
-- `kind: command` precondition
-- 프로젝트 health 커맨드 (`converge`가 실행하는 것)
-- verifier·plugin이 실행하려는 커맨드
-- eval fixture가 실행하려는 커맨드
+- acceptance criteria commands
+- `kind: command` preconditions
+- project health commands (the ones `converge` executes)
+- commands a verifier or plugin intends to execute
+- commands an eval fixture intends to execute
 
-**예외는 없다.** 하네스가 서브프로세스를 띄우는 모든 지점이 `policy.py`를 통과한다.
+**There are no exceptions.** Every point at which the harness spawns a subprocess goes through `policy.py`.
 
-### 설정
+### Configuration
 
 ```yaml
 command_policy:
   default: require_approval          # fail-closed
-  rules:                             # 첫 매치 우선
+  rules:                             # first match wins
     - {match: '^(npm|pnpm|yarn) (test|run (build|lint|typecheck))$', verdict: allow}
     - {match: '^(pytest|python -m pytest)', verdict: allow}
     - {match: '^git (status|diff|log)', verdict: allow}
@@ -39,234 +39,234 @@ command_policy:
     - {match: '^(curl|wget|npm install|pip install|terraform apply|kubectl apply)', verdict: require_approval}
 ```
 
-매칭 대상은 argv를 공백으로 join한 정규화 문자열이다.
+What is matched is the normalized string produced by joining argv with spaces.
 
-`harness init`이 이 규칙 목록을 기본 config에 써 넣는다. 무엇이 자동 실행 승인되었는지는 파일을 열어 보면 알 수 있어야 하고, 프로젝트는 그것을 검토하고 고친다.
+`harness init` writes this rule list into the default config. What has been approved for automatic execution must be knowable by opening the file, and the project examines and fixes it.
 
-`command_policy` 키가 아예 없으면 규칙이 하나도 없는 것이므로 모든 커맨드가 `default`를 받는다. **fail-closed는 키의 부재에도 그대로 적용된다.**
+If the `command_policy` key is absent there are no rules at all, so every command takes `default`. **Fail-closed applies to the absence of the key as well.**
 
-### 판정 순서
+### Adjudication Order
 
 ```
-1. argv 를 정규화 문자열로 만든다
-2. rules 를 위에서부터 훑어 첫 매치의 verdict 를 채택한다
-3. 매치가 없으면 default 를 채택한다 (fail-closed = require_approval)
-4. command_policy_decision 이벤트를 남긴다
-5. verdict 별 처리
+1. turn argv into a normalized string
+2. scan rules from the top and adopt the verdict of the first match
+3. if there is no match, adopt default (fail-closed = require_approval)
+4. record a command_policy_decision event
+5. handling per verdict
 ```
 
-| verdict | 처리 |
+| verdict | Handling |
 |---|---|
-| `allow` | 실행한다 |
-| `deny` | 실행하지 않는다. `analyze`가 사전에 잡았어야 하므로, 런타임 도달은 task 정의 결함이다 → state `needs_replan` (reason: `policy_denied_at_runtime`) |
-| `require_approval` | TTY 면 대화형 승인. 아니면 `.harness/approved_commands.yaml` 조회. 무인 실행에서 미승인이면 verdict `blocked` |
+| `allow` | It is executed |
+| `deny` | It is not executed. `analyze` should have caught it in advance, so reaching runtime is a task-definition defect → state `needs_replan` (reason: `policy_denied_at_runtime`) |
+| `require_approval` | On a TTY, interactive approval. Otherwise, look up `.harness/approved_commands.yaml`. Unapproved in unattended execution is verdict `blocked` |
 
-### 승인 저장 형식
+### Approval Storage Format
 
 ```yaml
 # .harness/approved_commands.yaml
 approvals:
   - cmd: ["npm", "install"]
-    hash: "sha256:..."        # 정규화 문자열의 해시
+    hash: "sha256:..."        # hash of the normalized string
     approver: "emdhks09@gmail.com"
     approved_at: "2026-08-27T14:20:00+09:00"
     scope: run                # run | project
 ```
 
-해시가 키이므로 인자가 하나라도 바뀌면 승인이 재사용되지 않는다.
+Because the hash is the key, if even one argument changes the approval is not reused.
 
-### 기본 실행은 `shell=False`
+### The Default Execution Is `shell=False`
 
-argv 리스트를 그대로 `subprocess.run(argv, shell=False)`에 넘긴다. 셸 메타문자, 명령 치환, 파이프, 리다이렉션이 해석되지 않으므로 문자열 매칭을 우회하는 가장 흔한 경로가 닫힌다.
+The argv list is passed as-is to `subprocess.run(argv, shell=False)`. Shell metacharacters, command substitution, pipes, and redirection are not interpreted, so the most common path around string matching is closed.
 
-셸이 반드시 필요한 커맨드는 `shell: true`를 명시해야 하고, **그 선언 자체가 자동으로 `require_approval`로 승격된다.**
+A command that genuinely needs a shell must declare `shell: true` explicitly, and **the declaration itself is automatically promoted to `require_approval`.**
 
-### 정직한 한계
+### The Honest Limits
 
-**정규식 매칭은 보안 경계가 아니다.**
+**Regex matching is not a security boundary.**
 
-이것은 잘못된 planner와 저장소 인젝션에 대한 가드레일이다. 진짜 경계는 실행 프로파일이며, 그것은 `container`뿐이다. 05의 보장/미보장 표를 참조한다.
+This is a guardrail against a wrong planner and repository injection. The real boundary is the execution profile, and that is `container` only. See 05's guarantee / non-guarantee table.
 
-`allow`의 의미와 그 한계는 09에 서술한다.
+The meaning of `allow` and its limits are described in 09.
 
 ---
 
-## Acceptance Criteria 생명주기
+## Acceptance Criteria Lifecycle
 
 ```
-[1] baseline   agent 실행 전, 하네스가 직접 실행한다
-[2] agent 실행
-[3] post       모든 AC 를 다시 실행한다
+[1] baseline   before the agent executes, the harness executes them itself
+[2] agent execution
+[3] post       every AC is executed again
 ```
 
 ### baseline
 
-각 AC를 실행해 `green_before` 또는 `red_before`로 분류하고 `ac_baseline_executed` 이벤트를 남긴다.
+Each AC is executed, classified as `green_before` or `red_before`, and an `ac_baseline_executed` event is recorded.
 
-| 상황 | 처리 |
+| Situation | Handling |
 |---|---|
-| `expect_fail_before: true` 인데 `green_before` | **`ac_not_discriminating`.** 무엇을 바꾸든 통과하므로 검증력이 없다. **agent 를 실행하지 않고** state `needs_replan` |
-| `expect_fail_before` 가 아닌데 `red_before` | `pre_existing_failure`. `debt_opened` 이벤트로 원장에 올린다 |
+| `expect_fail_before: true` but `green_before` | **`ac_not_discriminating`.** It passes no matter what is changed, so it has no discriminating power. **Without executing the agent,** state `needs_replan` |
+| `red_before` without `expect_fail_before` | `pre_existing_failure`. It goes onto the ledger as a `debt_opened` event |
 
-`expect_fail_before`는 red→green 증명을 요구하는 선언이다. baseline에서 이미 통과한다면 그 AC는 이 task에 대해 아무것도 증명하지 못한다.
+`expect_fail_before` is a declaration that demands a red→green proof. If it already passes at baseline, that AC proves nothing about this task.
 
-### 실행 환경
+### Execution Environment
 
-- cwd는 워크스페이스(워크트리)다. baseline과 post가 같은 cwd를 쓴다.
-- 타임아웃은 config의 `ac_timeout_s`(기본 300). 초과는 `red`로 분류하고 사유를 기록한다.
-- exit code 0 = green, 그 외 = red. AC는 하네스가 실행하므로 여기서는 exit code가 곧 관측치다.
-- 모든 AC 커맨드는 Command Policy를 통과한다.
+- cwd is the workspace (the worktree). baseline and post use the same cwd.
+- The timeout is config's `ac_timeout_s` (default 300). Exceeding it is classified as `red` and the reason is recorded.
+- exit code 0 = green, anything else = red. Because the harness runs the ACs, here the exit code is itself the observation.
+- Every AC command goes through Command Policy.
 
 ---
 
-## TDD 모드 — red→green 을 하네스가 관측한다
+## TDD Mode — the Harness Observes red→green
 
-`development.mode: tdd`(03)인 task는 한 attempt 안에서 **두 번 디스패치**된다. agent가 "TDD로 했다"고 말하는 것은 증거가 아니므로, 하네스가 단계 사이에 직접 관측한다.
+A task with `development.mode: tdd` (03) is **dispatched twice** within one attempt. An agent saying "I did TDD" is not evidence, so the harness observes it directly between the phases.
 
 ```
-[1] baseline        expect_fail_before 가 아닌 AC 만 실행한다
-[2] test-author     첫 디스패치 — 테스트만 쓴다
-[3] red gate        expect_fail_before AC 의 baseline 을 여기서 잰다. 전부 red 여야 한다
-[4] implementation  둘째 디스패치 — 구현만 한다
-[5] post            모든 AC 를 다시 실행한다 (위 차등 판정 그대로)
+[1] baseline        only the ACs that are not expect_fail_before are executed
+[2] test-author     the first dispatch — it writes only tests
+[3] red gate        the baseline of the expect_fail_before ACs is measured here. All must be red
+[4] implementation  the second dispatch — it only implements
+[5] post            every AC is executed again (exactly the differential adjudication above)
 ```
 
-**`expect_fail_before` AC의 baseline은 [3]에서 잰다.** 테스트가 없는 시점의 red는 아무것도 증명하지 못한다. 테스트가 존재하고 실패한다는 관측만이 red→green의 before다. baseline이 두 조각으로 나뉘지만 합집합은 여전히 AC 하나당 관측 하나이므로, 차등 판정도 재개(10)도 표준 모드와 같은 절차다.
+**The baseline of an `expect_fail_before` AC is measured at [3].** A red at a point where the test does not exist proves nothing. Only the observation that the test exists and fails is the before of a red→green. The baseline is split into two pieces, but their union is still one observation per AC, so both differential adjudication and resume (10) follow the same procedure as standard mode.
 
-**red gate를 통과하지 못하면 implementation을 디스패치하지 않는다.**
+**If the red gate is not passed, the implementation is not dispatched.**
 
-### 단계 스코프
+### Phase Scope
 
-각 단계의 diff는 그 단계의 관측 기준에 대해 계산되고 05의 경로 스코프 판정을 그대로 받는다.
+Each phase's diff is computed against that phase's observation base and receives exactly the path scope adjudication of 05.
 
-| 단계 | 관측 기준 | `allowed` | `effective_forbidden` 에 더해지는 것 |
+| Phase | Observation base | `allowed` | Added to `effective_forbidden` |
 |---|---|---|---|
-| test-author | dispatch 시점 HEAD (`task_dispatched` 의 `base`) | `test_paths` | `implementation_paths` |
-| implementation | red gate 커밋 (`tdd_phase_completed` 의 `base`) | `implementation_paths` | `test_paths` |
+| test-author | HEAD at dispatch time (`base` of `task_dispatched`) | `test_paths` | `implementation_paths` |
+| implementation | the red gate commit (`base` of `tdd_phase_completed`) | `implementation_paths` | `test_paths` |
 
-- 두 목록이 겹치게 선언되어도 각 단계에서 **상대 목록이 금지**이므로 구멍이 생기지 않는다.
-- test-author 단계가 끝나면 하네스가 그 변경을 task 브랜치에 커밋하고 그 sha를 다음 단계의 관측 기준으로 남긴다. 이후 관측이 이 sha 대비이므로 **agent가 커밋으로 변경을 감춰도 같은 diff로 관측된다.** 테스트의 수정·삭제가 implementation 단계의 `path_violation`이 되는 것이 여기서 나온다.
-- attempt 전체의 diff 판정(`kind` 기대·`allowed_paths`·리뷰 티어)은 두 단계의 합에 대해 그대로 한다. **TDD는 증거를 더할 뿐 기존 판정을 대체하지 않는다.** fixer가 만든 변경도 같은 단계 스코프를 다시 통과해야 한다.
+- Even if the two lists are declared so that they overlap, **the opposite list is forbidden** in each phase, so no hole opens.
+- When the test-author phase ends, the harness commits its changes onto the task branch and leaves that sha as the observation base of the next phase. Because every later observation is against this sha, **the same diff is observed even if the agent hides the change in a commit.** That a test's modification or deletion becomes a `path_violation` in the implementation phase follows from this.
+- The whole attempt's diff adjudication (the `kind` expectation, `allowed_paths`, the review tier) is done over the sum of the two phases, exactly as before. **TDD only adds evidence; it does not replace any existing adjudication.** Changes made by a fixer must pass the same phase scope again.
 
-### 게이트 실패
+### Gate Failure
 
-| 상황 | reason | verdict | next_state |
+| Situation | reason | verdict | next_state |
 |---|---|---|---|
-| test-author 가 스코프를 벗어났다 (구현 경로 포함) | `path_violation` | `rejected` | 시도 규칙대로 |
-| test-author 가 아무것도 쓰지 않았다 | `tdd_no_tests` | `rejected` | 시도 규칙대로 |
-| red gate 에서 AC 가 green | `ac_not_discriminating` | — | `needs_replan` |
-| `expect_fail_before` AC 가 하나도 없다 | `ac_not_discriminating` | — | `needs_replan` |
-| red gate 의 AC 가 `deny` | `policy_denied_at_runtime` | — | `needs_replan` |
-| red gate 의 AC 가 미승인이라 실행되지 않았다 | `unapproved_command` | `blocked` | `human_required` |
-| red gate 의 AC 가 실행되지 못했다 (타임아웃·프로세스 실패) | `tdd_red_gate_unexecuted` | `error` | 시도 규칙대로 |
-| implementation 이 테스트를 고쳤다·지웠다, 또는 스코프를 벗어났다 | `path_violation` | `rejected` | 시도 규칙대로 |
-| implementation 뒤에도 red | `unmet` | `rejected` | 시도 규칙대로 |
-| 기존 green AC 가 red 가 됐다 | `regression` | `rejected` | 시도 규칙대로 |
-| test-author 변경을 red 기준 커밋으로 고정하지 못했다 | `tdd_checkpoint_failed` | `error` | 시도 규칙대로 |
-| 워크트리 분리가 없는 프로파일 (`safe`) | `tdd_requires_worktree` | `error` | 시도 규칙대로 |
-| TDD 모드인데 그 단계를 실행할 옵션이 설치본에 없다 | `tdd_mode_unavailable` | `error` | 시도 규칙대로 |
+| test-author left its scope (implementation paths included) | `path_violation` | `rejected` | per the retry rule |
+| test-author wrote nothing | `tdd_no_tests` | `rejected` | per the retry rule |
+| an AC is green at the red gate | `ac_not_discriminating` | — | `needs_replan` |
+| there is not a single `expect_fail_before` AC | `ac_not_discriminating` | — | `needs_replan` |
+| an AC of the red gate is `deny` | `policy_denied_at_runtime` | — | `needs_replan` |
+| an AC of the red gate was not executed because it is unapproved | `unapproved_command` | `blocked` | `human_required` |
+| an AC of the red gate could not be executed (timeout, process failure) | `tdd_red_gate_unexecuted` | `error` | per the retry rule |
+| the implementation modified or deleted a test, or left its scope | `path_violation` | `rejected` | per the retry rule |
+| still red after the implementation | `unmet` | `rejected` | per the retry rule |
+| an AC that was green became red | `regression` | `rejected` | per the retry rule |
+| the test-author changes could not be pinned as the red base commit | `tdd_checkpoint_failed` | `error` | per the retry rule |
+| a profile without worktree separation (`safe`) | `tdd_requires_worktree` | `error` | per the retry rule |
+| the mode is TDD but the installation has no option to execute that phase | `tdd_mode_unavailable` | `error` | per the retry rule |
 
-`ac_not_discriminating`을 그대로 쓰는 것은 의미가 같기 때문이다 — 테스트가 존재하는데도 통과하는 AC는 무엇을 바꾸든 통과하므로 검증력이 없다. 새 state를 만들 이유가 없다.
+`ac_not_discriminating` is used as is because the meaning is the same — an AC that passes even though the test exists passes no matter what is changed, so it has no discriminating power. There is no reason to invent a new state.
 
-`tdd_requires_worktree`와 `tdd_mode_unavailable`이 `error`인 것은 10의 경계를 따른다. 사람이 환경을 준비해서 풀리는 문제가 아니라 task 선언과 설치본의 조합이 성립하지 않는 설정 결함이다.
+`tdd_requires_worktree` and `tdd_mode_unavailable` are `error` following the boundary of 10. They are not a problem that is solved by a human preparing the environment; they are a configuration defect where the combination of the task declaration and the installation does not hold.
 
-### 증거의 소재
+### Where the Evidence Lives
 
-| 질문 | journal |
+| Question | journal |
 |---|---|
-| test-author 단계가 끝났는가 | `tdd_phase_completed {phase: test_author, base}` |
-| red gate 를 통과했는가 | `tdd_phase_completed {phase: red_gate, ok}` |
-| 무엇이 red 증거였는가 | 그 사이의 `ac_baseline_executed {classification: red_before}` |
-| implementation 을 실행했는가 | `agent_finished` 뒤의 `tdd_phase_completed {phase: implementation, ok: true}` |
-| green gate 결과는 무엇인가 | `ac_post_executed {differential: proven \| unmet}` |
+| did the test-author phase end | `tdd_phase_completed {phase: test_author, base}` |
+| was the red gate passed | `tdd_phase_completed {phase: red_gate, ok}` |
+| what was the red evidence | the `ac_baseline_executed {classification: red_before}` in between |
+| was the implementation executed | `tdd_phase_completed {phase: implementation, ok: true}` after `agent_finished` |
+| what is the green gate result | `ac_post_executed {differential: proven \| unmet}` |
 
-green gate를 위한 이벤트는 따로 두지 않는다. 차등 판정의 결과가 곧 green gate이며, 지표는 journal의 projection이지 별도 계측이 아니다 (03).
+No separate event is kept for the green gate. The result of the differential adjudication is the green gate, and metrics are a projection of the journal, not separate instrumentation (03).
 
 ---
 
-## 정규화 — 판정 이전 단계
+## Normalization — the Stage Before Adjudication
 
 ```
-outbox 의 raw claim / raw handoff 발견
+raw claim / raw handoff found in the outbox
         │
-        ├ jsonschema 검증 통과 → claim.json / handoff.json 으로 승격
-        │                        claim_received / handoff_received 이벤트
+        ├ jsonschema validation passes → promoted to claim.json / handoff.json
+        │                                claim_received / handoff_received events
         │
-        └ 검증 실패          → *.invalid.json 으로 보존
-                               claim_rejected / handoff_rejected 이벤트
-                               이후 판정에서 None 으로 취급
+        └ validation fails             → preserved as *.invalid.json
+                                         claim_rejected / handoff_rejected events
+                                         treated as None in later adjudication
 ```
 
 > **Invalid claim is an invalid report, not automatically an invalid implementation.**
 
-정규화는 판정이 아니다. 여기서 verdict가 결정되는 경로는 없다.
+Normalization is not adjudication. There is no path by which a verdict is decided here.
 
 ---
 
-## 차등 판정 — task는 자기가 바꾼 것으로만 평가된다
+## Differential Adjudication — a Task Is Evaluated Only by What It Changed
 
-| baseline | post | task 판정 |
+| baseline | post | Task adjudication |
 |---|---|---|
-| green | green | 정상 |
-| green | red | **회귀 → `rejected`** |
-| red (`expect_fail_before`) | green | **red→green 증명 성공** |
-| red (`expect_fail_before`) | red | 목표 미달 → `rejected` |
-| red (pre-existing) | red | 이 task 의 책임이 아니다. **판정에 영향 없음.** debt 유지 |
-| red (pre-existing) | green | 부수적으로 해결됨 → `debt_closed` |
+| green | green | Normal |
+| green | red | **Regression → `rejected`** |
+| red (`expect_fail_before`) | green | **red→green proof succeeds** |
+| red (`expect_fail_before`) | red | Falls short of the goal → `rejected` |
+| red (pre-existing) | red | Not this task's responsibility. **No effect on adjudication.** The debt remains |
+| red (pre-existing) | green | Incidentally resolved → `debt_closed` |
 
-**무관한 기존 실패 때문에 올바른 task가 rejected되지 않는다.**
+**A correct task is not rejected because of an unrelated pre-existing failure.**
 
-예외가 하나 있다. pre-existing 실패가 그 task의 `allowed_paths` 안에 있다면 면제하지 않고 리뷰 finding으로 승격한다. 자기 영역의 깨진 테스트를 모른 척하는 것은 정상 작업이 아니다.
-
----
-
-## verified 조건
-
-다음 네 가지가 **전부** 통과해야 한다. **claim과 handoff는 여기에 없다.**
-
-1. `kind`에 맞는 diff 기대 충족 — `implementation`은 비어 있지 않음, `readonly`는 비어 있음, `analysis`는 무관
-2. 변경이 `allowed_paths` 안이고 `effective_forbidden` 밖 (05 참조)
-3. 위 차등 판정표에서 `rejected` 사유가 없음
-4. `effective_risk` 티어가 요구하는 리뷰의 blocking finding이 0
-
-diff 의 관측 기준은 **dispatch 시점의 HEAD**(`task_dispatched` 의 `base`)다. agent 가 변경을 커밋했든 워킹트리에 남겼든 같은 diff 로 관측된다 — 커밋 여부는 판정에 영향을 주지 않는다 (05).
-
-**claim이 깨졌거나 없다는 이유만으로 rejected되는 경로는 존재하지 않는다.**
-
-`implementation` task인데 diff가 비었고 AC가 전부 통과하면 조용히 통과시키지 않는다. `no_op_detected`로 기록하고 state `needs_replan`으로 보낸다. 이 조합은 AC에 검증력이 없다는 신호다.
+There is one exception. If the pre-existing failure is inside that task's `allowed_paths`, it is not exempted; it is promoted to a review finding. Pretending not to see a broken test in one's own territory is not normal work.
 
 ---
 
-## terminal 단계 — handoff 게이트와 통합
+## Conditions for `verified`
 
-증거 조건 1~4를 통과했다는 이유만으로 즉시 `verified`를 기록하지 않는다. **`verified`는 terminal에서만 기록한다.** 순서는 고정이다.
+The following four must **all** pass. **The claim and the handoff are not here.**
+
+1. The diff expectation for the `kind` is satisfied — `implementation` is not empty, `readonly` is empty, `analysis` is unconstrained
+2. The changes are inside `allowed_paths` and outside `effective_forbidden` (see 05)
+3. There is no `rejected` reason in the differential adjudication table above
+4. The reviews the `effective_risk` tier requires have zero blocking findings
+
+The reference point for observing the diff is **HEAD at dispatch** (`task_dispatched`'s `base`). Whether the agent committed the changes or left them in the working tree, the same diff is observed — whether it committed has no effect on adjudication (05).
+
+**No path leads to `rejected` merely because the claim is broken or missing.**
+
+When an `implementation` task has an empty diff and every AC passes, it is not passed silently. It is recorded as `no_op_detected` and sent to state `needs_replan`. This combination is a signal that the ACs have no discriminating power.
+
+---
+
+## The terminal Stage — the handoff Gate and Integration
+
+`verified` is not recorded immediately merely because evidence conditions 1–4 passed. **`verified` is recorded only at terminal.** The order is fixed.
 
 ```
-증거 조건 1~4 통과
-   │  (아직 verdict 미기록)
+evidence conditions 1-4 pass
+   │  (no verdict recorded yet)
    ▼
 required handoff gate
-   ├ outputs.required 가 비어 있음        → 통합으로
-   ├ required handoff 가 유효             → 통합으로 (TaskOutput 병합 기록)
-   └ required handoff 누락 또는 invalid   → verdict 미기록, next_state = repairing
+   ├ outputs.required is empty            → to integration
+   ├ required handoff is valid            → to integration (TaskOutput merge recorded)
+   └ required handoff missing or invalid  → no verdict recorded, next_state = repairing
    │
    ▼
-통합  (워크트리를 쓰는 프로파일에 한한다. 브랜치 구조는 05)
-   ├ 머지 성공                            → verdict = verified
-   └ 머지 충돌                            → verdict 미기록, next_state = integration_conflict
+integration  (only for profiles that use a worktree. Branch structure is in 05)
+   ├ merge succeeds                       → verdict = verified
+   └ merge conflict                       → no verdict recorded, next_state = integration_conflict
 ```
 
-**`verified`가 기록되는 지점은 이 마지막 한 곳뿐이다.** 그래서 `verdict_assigned`가 attempt당 한 번이라는 03의 규칙이 유지된다. 머지를 verdict 뒤에 두면 충돌 시 같은 attempt에 두 번째 verdict를 기록해야 한다.
+**This last point is the only place where `verified` is recorded.** That is what keeps 03's rule that `verdict_assigned` happens once per attempt. Putting the merge after the verdict would mean recording a second verdict for the same attempt on a conflict.
 
-`repairing`에서 하는 일:
+What `repairing` does:
 
-- **코드는 그대로 둔다.** 되돌리지도 다시 만들지도 않는다. 구현은 이미 증거로 검증되었다.
-- **handoff artifact만** 재생성하는 좁은 fixer를 호출한다. `fixer_dispatched {scope: "handoff"}`.
-- 기존 fixer 경로와 프롬프트 템플릿 하나를 공유한다. 새 기계장치를 만들지 않는다.
-- 성공 → verdict `verified` → `done`.
-- 시도 소진 → state `human_required` (reason: `handoff_missing`).
+- **The code is left as it is.** It is neither reverted nor rebuilt. The implementation has already been verified by evidence.
+- A narrow fixer that regenerates **only the handoff artifact** is invoked. `fixer_dispatched {scope: "handoff"}`.
+- It shares one prompt template with the existing fixer path. No new machinery is built.
+- Success → verdict `verified` → `done`.
+- Attempts exhausted → state `human_required` (reason: `handoff_missing`).
 
-`optional` output이 없으면 다음 task의 컨텍스트에서 그냥 제외한다. 아무 판정도 하지 않는다.
+If an `optional` output is absent, it is simply excluded from the next task's context. No adjudication is made.
 
 ---
 
@@ -274,41 +274,41 @@ required handoff gate
 
 > `exit_code == 0` is not success. `exit_code != 0` is not necessarily implementation failure. **Evidence decides.**
 
-| 상황 | 처리 |
+| Situation | Handling |
 |---|---|
-| timeout / 시그널 kill / 프로토콜 위반 | 실행 자체가 유효하게 성립하지 않았다. `AgentResult.runtime_failure`로 표시되고 verdict `error`로 분류되어 재시도 정책을 탄다 |
-| 평범한 non-zero exit | **증거 하나일 뿐이다.** `agent_exit_nonzero` 이벤트로 exit code와 stderr 꼬리를 남기되, 하네스 소유 증거가 전부 통과하면 `verified`가 가능하다 |
-| exit 0 | 성공의 근거가 아니다. 판정은 위 알고리즘으로만 한다 |
+| timeout / signal kill / protocol violation | The execution itself did not validly stand. It is marked as `AgentResult.runtime_failure`, classified as verdict `error`, and goes through the retry policy |
+| An ordinary non-zero exit | **It is only one piece of evidence.** The exit code and the stderr tail are recorded in an `agent_exit_nonzero` event, but if all harness-owned evidence passes, `verified` is possible |
+| exit 0 | It is not a basis for success. Adjudication is done only by the algorithm above |
 
-`verified_with_warning` 같은 파생 verdict를 만들지 않는다. non-zero exit는 journal에 남고 리포트에 표시되지만 verdict를 오염시키지 않는다.
+Derived verdicts such as `verified_with_warning` are not created. A non-zero exit is recorded in the journal and shown in the report, but it does not contaminate the verdict.
 
 ---
 
-## blocked 판정 — 하네스 소유 증거만
+## `blocked` Adjudication — Harness-Owned Evidence Only
 
 ```
 1. precheck
-   하네스가 preconditions 와 어댑터 preflight 를 직접 실행한다.
-   missing_prerequisite       → verdict blocked (agent 미실행)
+   the harness executes the preconditions and the adapter preflight itself.
+   missing_prerequisite       → verdict blocked (the agent is not executed)
    misconfigured / internal   → verdict error
 
-2. 실행 후 실패의 재분류
-   environment verifier 가 하네스 소유 증거로 판단한다.
-   · AC stderr 를 config 의 blocked_signals 패턴과 대조
-   · preconditions 를 다시 실행
-   · 독립 probe 로 확인되면 → verdict blocked
+2. reclassification of a failure after execution
+   the environment verifier judges from harness-owned evidence.
+   · match AC stderr against config's blocked_signals patterns
+   · execute the preconditions again
+   · if confirmed by an independent probe → verdict blocked
 
-3. claim 의 blocked_hint
-   해당 probe 를 우선 실행하는 트리거로만 쓴다.
-   probe 가 통과하면 힌트를 인정하지 않는다
-   → verdict rejected + claim_uncorroborated 이벤트
+3. the claim's blocked_hint
+   used only as a trigger to execute that probe first.
+   if the probe passes, the hint is not accepted
+   → verdict rejected + claim_uncorroborated event
 ```
 
-**어떤 경로로도 agent의 말만으로 `blocked`에 도달할 수 없다.**
+**No path reaches `blocked` on the agent's word alone.**
 
-`blocked`는 해당 task와 그 하위 의존만 막는다. 런 전체를 중단하지 않는다.
+`blocked` blocks only that task and its downstream dependents. It does not abort the entire run.
 
-`blocked`와 `error`의 canonical 경계는 10의 실패 분류표다.
+The canonical boundary between `blocked` and `error` is 10's failure classification table.
 
 ---
 
@@ -318,25 +318,25 @@ required handoff gate
 effective_risk = max(declared_risk, path_floor, diff_floor)
 ```
 
-- `path_floor` — `risk_rules`의 경로 패턴(05의 glob 방언)에서 나온다. 사전에는 `allowed_paths`에, 사후에는 실제 diff 경로에 적용한다.
-- `diff_floor` — 실제 diff의 규모에서 나온다. **변경 라인 합이 400 이상이거나 변경 파일이 20개 이상이면 `medium`.** 신규 의존성·공개 API 표면 같은 신호는 경로로 표현되는 한 `risk_rules`가 잡는다 — 의존성 매니페스트가 기본 목록에 있는 이유다.
-- `risk`를 선언하지 않은 task의 declared는 `trivial`로 본다. floor가 안전망이다.
+- `path_floor` — comes from the path patterns of `risk_rules` (the glob dialect in 05). Up-front it applies to `allowed_paths`, post-hoc to the actual diff paths.
+- `diff_floor` — comes from the size of the actual diff. **400 or more changed lines in total, or 20 or more changed files, is `medium`.** Signals such as a new dependency or public API surface are caught by `risk_rules` as far as they are expressed as paths — that is why dependency manifests are in the default list.
+- A task that does not declare `risk` is taken as declared `trivial`. The floor is the safety net.
 
-**2단계로 계산한다.**
+**It is computed in two steps.**
 
-1. **사전** — 선언값과 `allowed_paths`로 floor를 잡아 스케줄링과 예산을 결정한다.
-2. **사후** — **실제 diff를 본 뒤 리뷰 티어를 확정한다.**
+1. **Up-front** — the floor is taken from the declared value and `allowed_paths` to decide scheduling and budget.
+2. **Post-hoc** — **the review tier is fixed after looking at the actual diff.**
 
-사전값만 쓰면 `trivial`로 선언한 task가 인증 코드를 건드려도 리뷰를 빠져나간다. 상향만 가능하고, 하향은 기록되는 사람 waiver로만 한다. 상향은 `risk_escalated` 이벤트로 남는다.
+With the up-front value alone, a task declared `trivial` escapes review even when it touches authentication code. Only escalation is possible; a downgrade is made only by a recorded human waiver. Escalation is recorded as a `risk_escalated` event.
 
 ### risk_rules
 
 ```yaml
-risk_rules:                      # 선언은 내장 기본 목록에 **추가**된다
+risk_rules:                      # a declaration is **added** to the built-in default list
   - {match: "src/payments/**", floor: high}
 ```
 
-내장 기본 목록 — 인증·암호·비밀·마이그레이션·CI 워크플로·컨테이너 정의·의존성 매니페스트:
+The built-in default list — authentication, cryptography, secrets, migrations, CI workflows, container definitions, dependency manifests:
 
 ```yaml
 - {match: "**/auth/**", floor: high}
@@ -354,13 +354,13 @@ risk_rules:                      # 선언은 내장 기본 목록에 **추가**�
 - {match: "**/Cargo.toml", floor: high}
 ```
 
-선언으로 기본을 **끌 수 없다.** effective_risk는 전체 목록의 최대값이므로 추가는 상향만 만든다. 하향은 기록되는 사람 waiver뿐이다.
+A declaration **cannot turn the defaults off.** Since effective_risk is the max over the whole list, additions can only escalate. A downgrade is by a recorded human waiver alone.
 
-### 티어
+### Tiers
 
-| 티어 | 리뷰어 |
+| Tier | Reviewers |
 |---|---|
-| `trivial` | 없음 — 검증만 |
+| `trivial` | none — verification only |
 | `low` | `spec` |
 | `medium` | + `quality` |
 | `high` | + `architecture-security` |
@@ -370,102 +370,101 @@ risk_rules:                      # 선언은 내장 기본 목록에 **추가**�
 
 ## Bounded review wave
 
-`max_review_waves` 기본값은 2다 (06의 config 키).
+The default for `max_review_waves` is 2 (a config key of 06).
 
 ```
 wave n:
-  티어의 리뷰어를 각각 독립 실행 (fresh context — 병렬 여부는 구현 세부다)
-  findings 병합 + 중복 제거 (키: rule · file · line)
-  blocking finding 이 0 이면 → handoff 게이트로
-  아니면 fixer 1명 호출 (fresh context: findings + 해당 파일 + task 계약만)
-  AC post 재실행 + diff·경로 재판정 — 리뷰가 만든 변경도 같은 증거 기준을 통과해야 한다
-  다음 wave 에서 재리뷰
-wave 한도 초과 후에도 blocking 이 남으면 → verdict rejected (10 의 review 행)
+  execute each of the tier's reviewers independently (fresh context — whether they are parallel is an implementation detail)
+  merge findings + remove duplicates (key: rule · file · line)
+  if blocking findings are 0 → to the handoff gate
+  otherwise invoke 1 fixer (fresh context: findings + the files concerned + the task contract only)
+  re-execute AC post + re-adjudicate diff and paths — changes made by review must also pass the same evidence standard
+  re-review in the next wave
+if blocking remains after the wave limit is exceeded → verdict rejected (10's review row)
 ```
 
-- **리뷰어는 구현자의 대화를 보지 않는다.** 컨텍스트는 diff, task 계약, constitution뿐이다. 구현자의 논리에 설득당하는 리뷰는 독립 리뷰가 아니다.
-- `blocking` 판정은 결정론적이다: `severity ∈ {high, critical}` 또는 `rule ∈ constitution.critical`. 리뷰어가 스스로 blocking 여부를 정하지 않는다. **constitution의 `## critical` 섹션의 리스트 항목이 그 rule 목록이다.**
-- 예산 초과 시 조용히 품질 기준을 낮추지 않는다. verdict `budget_exhausted`로 정지한다.
+- **Reviewers do not see the implementer's conversation.** The context is the diff, the task contract, and the constitution, and nothing else. A review that is persuaded by the implementer's reasoning is not an independent review.
+- The `blocking` adjudication is deterministic: `severity ∈ {high, critical}` or `rule ∈ constitution.critical`. Reviewers do not decide blocking for themselves. **The list items of the constitution's `## critical` section are that rule list.**
+- Exceeding the budget does not silently lower the quality bar. It stops with verdict `budget_exhausted`.
 
-### 리뷰어의 산출물 — findings
+### The Reviewer's Output — findings
 
-리뷰어는 agent이며, 자기 outbox에 `findings.json`을 쓴다.
+A reviewer is an agent, and it writes `findings.json` into its own outbox.
 
 ```json
 {"schema": "harness.findings/v1", "task_id": "T-003",
  "findings": [{"severity": "high", "rule": "hardcoded-secret",
-               "file": "src/db.py", "line": 12, "message": "비밀이 코드에 있다"}]}
+               "file": "src/db.py", "line": 12, "message": "a secret is in the code"}]}
 ```
 
-- `severity`는 `info | low | medium | high | critical`.
-- **findings 파일이 없거나 schema를 위반하면 그 리뷰는 성립하지 않는다** — verdict `error` (10의 system defect). 리뷰어의 침묵을 통과로 해석하지 않는다. 발견이 없으면 빈 배열을 쓴다.
-- 각 wave의 원본은 `review/wave-<n>/<reviewer>.json`으로 보존된다 (03의 파일 배치).
+- `severity` is `info | low | medium | high | critical`.
+- **If the findings file is missing or violates the schema, that review does not stand** — verdict `error` (10's system defect). A reviewer's silence is not read as a pass. With no findings, write an empty array.
+- The original of each wave is preserved as `review/wave-<n>/<reviewer>.json` (03's file layout).
 
 ---
 
-## 예산 상한
+## Budget Caps
 
-run이 쓸 수 있는 자원의 상한이다. **초과 시 조용히 품질 기준을 낮추지 않는다** — 그 시점의 task에 verdict `budget_exhausted`를 부여하고, 이후 task도 같은 확인에 걸려 run이 멈춘다. run 자체는 정상 종료하고 요약에 남는다 (10).
+This is the cap on the resources a run can use. **Exceeding it does not silently lower the quality bar** — the task at that point is assigned verdict `budget_exhausted`, and later tasks hit the same check, so the run stops. The run itself terminates normally and is left in the summary (10).
 
 ```yaml
 budget:
-  max_wall_time_s: null       # run 시작부터의 벽시계 시간. null 은 무제한
-  max_agent_calls: null       # agent 프로세스 호출 수 — 리뷰어·fixer 포함
-  max_cost_usd: null          # usage 를 보고하는 어댑터에서만 유효. 추정하지 않는다 (11)
+  max_wall_time_s: null       # wall-clock time from the start of the run. null is unlimited
+  max_agent_calls: null       # number of agent process invocations — reviewers and fixers included
+  max_cost_usd: null          # valid only on adapters that report usage. It does not estimate (11)
 ```
 
-- 확인 지점은 **모든 agent 프로세스를 부르기 직전**이다 — TDD의 두 디스패치, 리뷰어,
-  fixer, handoff repair도 각각 별도로 확인한다.
-- 확인할 때마다 `budget_checkpoint` 이벤트가 남는다. 소비량은 전부 journal의 projection이다 — 별도 카운터가 없다.
-- 상한이 하나도 설정되지 않았으면 확인하지 않고 이벤트도 남기지 않는다.
+- The check point is **immediately before every agent process is invoked** — the two dispatches of TDD,
+  reviewers, fixers, and handoff repair are each checked separately.
+- Every check records a `budget_checkpoint` event. Consumption is entirely a projection of the journal — there is no separate counter.
+- If no cap is configured at all, no check is made and no event is recorded.
 
 ---
 
-## 남는 최대 리스크
+## The Largest Remaining Risk
 
-**AC가 부실하면 하네스도 진실을 알 수 없다.** 하네스는 AC보다 똑똑해질 수 없다.
+**If the ACs are weak the harness cannot know the truth either.** The harness cannot be smarter than its ACs.
 
-완화는 셋이다.
+There are three mitigations.
 
-1. baseline의 검증력 체크 (`ac_not_discriminating`)
-2. `analyze`가 **코드가 아니라 AC 자체를 리뷰**한다 (08)
-3. 11의 `escape_rate`로 이 리스크를 **수치화**한다 — 하네스가 `verified`라고 했는데 hidden grader는 실패로 본 비율
+1. The discriminating-power check at baseline (`ac_not_discriminating`)
+2. `analyze` **reviews the ACs themselves, not the code** (08)
+3. 11's `escape_rate` **quantifies** this risk — the rate at which the harness said `verified` but the hidden grader saw a failure
 
 ---
 
-## 06이 소유하는 config 키
+## Config Keys Owned by 06
 
-03의 `config.yaml` canonical은 최상위 키의 뼈대만 정한다. 아래 키의 정의는 이 문서가 갖는다.
+03's canonical `config.yaml` fixes only the skeleton of the top-level keys. The definitions of the keys below belong to this document.
 
 ```yaml
-ac_timeout_s: 300             # AC 한 개의 타임아웃(초)
-agent_timeout_s: 1800         # agent 프로세스 하나의 타임아웃(초)
+ac_timeout_s: 300             # timeout of one AC (seconds)
+agent_timeout_s: 1800         # timeout of one agent process (seconds)
 
-max_attempts: 2               # 한 task 가 rejected/error 로 재시도할 수 있는 횟수
-max_handoff_repairs: 1        # repairing 에서 handoff fixer 를 부를 수 있는 횟수
+max_attempts: 2               # how many times one task can retry on rejected/error
+max_handoff_repairs: 1        # how many times repairing can invoke the handoff fixer
 
-blocked_signals: []           # AC stderr 대조 패턴(정규식) 목록
+blocked_signals: []           # list of patterns (regex) to match AC stderr against
 
-max_review_waves: 2           # bounded review wave 의 한도
-adversarial_adapter: null     # adversarial 리뷰어가 쓸 어댑터 이름. null 이면 task 의 어댑터
+max_review_waves: 2           # the limit of the bounded review wave
+adversarial_adapter: null     # name of the adapter the adversarial reviewer uses. null means the task's adapter
 
-risk_rules: []                # effective_risk 의 경로 floor — 위 "risk_rules" 절
+risk_rules: []                # path floors of effective_risk — the "risk_rules" section above
 
-budget:                       # 위 "예산 상한" 절
+budget:                       # the "Budget Caps" section above
   max_wall_time_s: null
   max_agent_calls: null
   max_cost_usd: null
 
-command_policy:               # 위 "Command Policy" 절의 형태
+command_policy:               # the shape of the "Command Policy" section above
   default: require_approval
   rules: []
 ```
 
-- `agent_timeout_s`가 `AgentRequest.timeout_s`의 출처다. 초과는 어댑터가 `runtime_failure=timeout`으로 표시하며, 04가 canonical이다.
-- **`max_attempts`가 03의 verdict → next_state 표에서 말하는 "시도 소진"의 기준이다.** 소진되면 `rejected`의 next_state가 `ready`가 아니라 `needs_replan`이 된다.
-- `max_handoff_repairs`를 소진하면 state `human_required`(reason: `handoff_missing`)다.
-- **`adversarial_adapter`는 `critical` 티어의 독립성을 한 단계 더 올리는 옵션이다.** 구현자와
-  같은 모델이 자기 결과를 적대적으로 검토하면 같은 맹점을 공유한다. `adapters`에 선언된 다른
-  이름을 지정하면 `adversarial` 리뷰어만 그 어댑터로 실행된다. 나머지 리뷰어와 fixer 는 영향을
-  받지 않는다. 지정한 이름이 `adapters`에 없으면 로드 실패다.
-- **`blocked_signals`의 기본이 빈 목록인 것은 의도다.** 패턴을 미리 심으면 프로젝트마다 오탐이 생기고, 오탐의 결과는 잘못된 `blocked`다. 기본 경로는 precondition 재실행이라는 하네스 소유 증거이며, 패턴은 그 저장소가 자기 실패 양상을 알 때 더한다.
+- `agent_timeout_s` is the source of `AgentRequest.timeout_s`. The adapter marks an overrun as `runtime_failure=timeout`, and 04 is canonical.
+- **`max_attempts` is the criterion for "attempts exhausted" in 03's verdict → next_state table.** Once exhausted, the next_state of `rejected` becomes `needs_replan` instead of `ready`.
+- Exhausting `max_handoff_repairs` gives state `human_required` (reason: `handoff_missing`).
+- **`adversarial_adapter` is an option that raises the independence of the `critical` tier one step further.** If the same model as the implementer examines its own results adversarially, it shares the same blind spots. If another
+  name declared in `adapters` is given, only the `adversarial` reviewer executes with that adapter. The remaining reviewers and the fixer are
+  unaffected. If the given name is not in `adapters`, it is a load failure.
+- **The empty default for `blocked_signals` is deliberate.** Planting patterns in advance produces false positives per project, and the result of a false positive is a wrong `blocked`. The default path is the harness-owned evidence of re-executing the preconditions, and patterns are added when that repository knows its own failure modes.

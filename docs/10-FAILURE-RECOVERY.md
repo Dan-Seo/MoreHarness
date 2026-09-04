@@ -1,150 +1,151 @@
-# 10 · 실패와 복구
+# 10 · Failure and Recovery
 
-이 문서는 **실패 분류표의 canonical 정의**를 갖는다. 다른 모든 문서는 이 표를 참조하며 재서술하지 않는다.
+This document holds the **canonical definition of the failure classification table**. Every other document references this table and does not restate it.
 
-## 실패 분류 — canonical
+## Failure Classification — canonical
 
-verdict와 state는 **다른 축**이다. 03의 정의를 따른다.
+verdict and state are **different axes**. 03's definitions apply.
 
-| 분류 | 판단 기준 | 예 | verdict | next_state | 재시도 |
+| Class | Criterion | Example | verdict | next_state | Retry |
 |---|---|---|---|---|---|
-| **prerequisite** | 시스템은 정상, 외부 준비물이 없다 | CLI 미설치, 로그인 필요, credential 없음, Docker daemon off, 필수 파일·env 없음, 무인 실행 중 미승인 커맨드 | `blocked` | `human_required` | 사람이 해결한 뒤 재개 |
-| **system defect** | 하네스·어댑터 구현 문제가 의심된다 | 어댑터 설정 schema 오류, 내부 예외, 프로토콜 위반, 예상 밖 result shape, conformance 위반 | `error` | `ready` → 반복 시 `human_required` | 정책에 따라 제한 재시도 |
-| **transient** | 일시적 실행 실패 | 타임아웃, 시그널 kill, 일시적 네트워크 | `error` | `ready` | 백오프 재시도 |
-| **verification** | AC·차등 판정 실패 | 회귀, red→green 미달 | `rejected` | 시도 남음 `ready` / 소진 `needs_replan` | 시도 한도까지 |
-| **review** | blocking finding 잔존 | | `rejected` | 시도 남음 `ready` / 소진 `needs_replan` | wave 한도까지 |
-| **handoff** | 구현은 정상인데 required output 이 없다 | | — | `repairing` | 좁은 fixer, 한도 후 `human_required` |
-| **integration** | 머지 충돌 | | — | `integration_conflict` | replan 또는 사람 |
-| **task definition** | 재시도가 무의미한 정의 결함 | `policy_denied_at_runtime`, `ac_not_discriminating`, `no_op_detected` | — | `needs_replan` | 없음 |
-| **budget** | 예산 소진 | | `budget_exhausted` | `human_required` | 없음 (정지) |
+| **prerequisite** | The system is fine, an external prerequisite is absent | CLI not installed, login required, no credential, Docker daemon off, a required file or env absent, an unapproved command during unattended execution | `blocked` | `human_required` | Resume after a human resolves it |
+| **system defect** | A harness or adapter implementation problem is suspected | adapter config schema error, internal exception, protocol violation, unexpected result shape, conformance violation | `error` | `ready` → `human_required` on repetition | Limited retry according to policy |
+| **transient** | A transient execution failure | timeout, signal kill, transient network | `error` | `ready` | Retry with backoff |
+| **verification** | AC or differential adjudication failure | regression, red→green falls short | `rejected` | attempts remain `ready` / exhausted `needs_replan` | Up to the attempt limit |
+| **review** | A blocking finding remains | | `rejected` | attempts remain `ready` / exhausted `needs_replan` | Up to the wave limit |
+| **handoff** | The implementation is fine but a required output is absent | | — | `repairing` | Narrow fixer, `human_required` after the limit |
+| **integration** | Merge conflict | | — | `integration_conflict` | replan or a human |
+| **task definition** | A definition defect for which retry is meaningless | `policy_denied_at_runtime`, `ac_not_discriminating`, `no_op_detected` | — | `needs_replan` | None |
+| **budget** | Budget exhausted | | `budget_exhausted` | `human_required` | None (stop) |
 
-`handoff`, `integration`, `task definition` 세 분류는 **verdict를 기록하지 않는다.** state만 갖는다.
+The three classes `handoff`, `integration`, and `task definition` **record no verdict.** They have only a state.
 
-### `blocked`와 `error`의 경계
+### The boundary between `blocked` and `error`
 
-가장 자주 헷갈리는 두 값이다. 기준은 하나다.
+These are the two values most often confused. There is one criterion.
 
-> **사람이 환경을 고치면 해결되는가?** → `blocked`
-> **하네스나 어댑터 코드를 고쳐야 하는가?** → `error`
+> **Is it resolved once a human fixes the environment?** → `blocked`
+> **Does harness or adapter code have to be fixed?** → `error`
 
-| 상황 | 분류 |
+| Situation | Class |
 |---|---|
-| `claude` CLI 가 PATH 에 없다 | `blocked` (설치하면 해결) |
-| 어댑터 설정의 placeholder 를 해석하지 못했다 | `error` (코드·설정 결함) |
-| `DATABASE_URL` 이 없다 | `blocked` |
-| `AgentResult` 에 필수 필드가 없다 | `error` (프로토콜 위반) |
-| Docker daemon 이 꺼져 있다 | `blocked` |
-| 무인 실행 중 `require_approval` 커맨드를 만났다 | `blocked` (사람이 승인하면 해결) |
-| journal fold 결과가 state 와 다르다 | `error` |
+| The `claude` CLI is not on PATH | `blocked` (installing it resolves it) |
+| A placeholder in the adapter configuration could not be interpreted | `error` (a code defect or a misconfiguration) |
+| `DATABASE_URL` is absent | `blocked` |
+| A required field is absent in `AgentResult` | `error` (protocol violation) |
+| The Docker daemon is off | `blocked` |
+| A `require_approval` command was met during unattended execution | `blocked` (a human approving it resolves it) |
+| The result of folding the journal differs from state | `error` |
 
-어댑터 `preflight`의 `kind`가 이 경계를 그대로 따른다. 04 참조.
+The adapter `preflight`'s `kind` follows this boundary exactly. See 04.
 
 ---
 
-## 크래시 일관성
+## Crash Consistency
 
 ```
-1. journal.jsonl 에 이벤트 append
+1. append the event to journal.jsonl
 2. fsync
-3. state.json 갱신
+3. update state.json
 ```
 
-이 순서가 불변이다. 어느 지점에서 죽어도 손실이 없다.
+This order is immutable. No matter where it dies, there is no loss.
 
-| 죽은 지점 | 결과 |
+| Point of death | Result |
 |---|---|
-| 1 이전 | 아무 일도 없었던 것과 같다 |
-| 1과 2 사이 | 부분 기록된 마지막 줄은 파싱 실패로 버려진다. 그 이벤트는 없었던 것이 된다 |
-| 2와 3 사이 | journal 이 앞서 있다. 재개 시 `last_applied_seq` 이후를 재생하면 복원된다 |
-| 3 이후 | 정상 |
+| Before 1 | The same as if nothing had happened |
+| Between 1 and 2 | The partially written last line is discarded on parse failure. That event becomes as if it never happened |
+| Between 2 and 3 | The journal is ahead. On resume, replaying everything after `last_applied_seq` restores it |
+| After 3 | Normal |
 
-- journal의 마지막 줄이 깨져 있으면 **그 줄만 버린다.** 앞선 이벤트는 유효하다.
-- `state.json` 자체가 손상되면 journal 전체를 fold해 재구성한다. state는 캐시이므로 언제든 버릴 수 있다.
+- If the journal's last line is broken, **only that line is discarded.** The preceding events are valid.
+- If `state.json` itself is damaged it is reconstructed by folding the whole journal. state is a cache and can be thrown away at any time.
 
 ---
 
-## 재개
+## Resume
 
 ```
 harness run --resume <run-id>
 ```
 
-**멱등이어야 한다.** 같은 run-id로 몇 번을 재개해도 결과가 같아야 한다.
+**It must be idempotent.** Resuming with the same run-id any number of times must produce the same result.
 
-| 재개 시점의 state | 처리 |
+| State at the time of resume | Handling |
 |---|---|
-| `done` (verdict `verified`) | **재실행하지 않는다** |
-| `pending`, `ready` | 정상 스케줄링 |
-| `precheck`, `running` | agent 실행이 끝나지 않았다. 워크트리·outbox를 정리하고 **그 attempt를 처음부터 다시 시작한다** |
-| `executed`, `verifying`, `reviewing`, `repairing` | agent 실행은 끝났다. 워크트리와 outbox가 남아 있으면 **그 attempt의 검증부터 재개한다** — baseline은 journal의 `ac_baseline_executed`로 복원하므로 agent를 다시 부르지 않는다. 남아 있지 않으면 그 attempt를 처음부터 |
-| `human_required`, `needs_replan`, `integration_conflict` | 재개하지 않는다. 사람이 조치한 뒤 새 run 또는 명시적 재개 |
+| `done` (verdict `verified`) | **It is not re-run** |
+| `pending`, `ready` | Normal scheduling |
+| `precheck`, `running` | The agent's execution did not finish. Clean up the worktree and outbox and **start that attempt over from the beginning** |
+| `executed`, `verifying`, `reviewing`, `repairing` | The agent's execution finished. If the worktree and outbox remain, **resume that attempt from verification** — the baseline is restored from `ac_baseline_executed` in the journal, so the agent is not called again. If they do not remain, that attempt from the beginning |
+| `human_required`, `needs_replan`, `integration_conflict` | It is not resumed. After a human acts, a new run or an explicit resume |
 
-TDD 모드(06)는 projection state보다 단계 증거를 먼저 본다. 한 attempt 안의 첫
-`agent_finished`만으로도 state가 `executed`가 되기 때문이다. 워크트리가 남아 있을 때
-`tdd_phase_completed {phase: implementation, ok: true}`가 있으면 검증부터, 성공한
-`red_gate`와 완전한 baseline은 있지만 성공한 `implementation`이 없으면 red gate 커밋을
-기준으로 implementation부터 재개한다. 그 밖에는 워크트리를 정리하고 attempt를 처음부터
-다시 시작한다. 워크트리가 없을 때도 예외 없이 처음부터 시작한다.
+TDD mode (06) looks at the phase evidence before the projection state, because the first
+`agent_finished` alone within one attempt already makes the state `executed`. When the
+worktree remains, if there is a `tdd_phase_completed {phase: implementation, ok: true}` it
+resumes from verification; if there is a successful `red_gate` and a complete baseline but no
+successful `implementation`, it resumes from the implementation phase with the red gate commit
+as the base. Otherwise it cleans up the worktree and starts the attempt from the beginning.
+When there is no worktree it starts from the beginning without exception.
 
-죽은 attempt는 **같은 attempt 번호로** 다시 시작한다. 크래시는 재시도 한도를 소진시키지 않는다 — `max_attempts`는 판정이 목표 미달을 보였을 때의 한도이지 프로세스가 죽은 횟수의 한도가 아니다. **그 attempt에 `verdict_assigned`가 없다는 것이 끝나지 않았다는 표시다.**
+A dead attempt restarts **under the same attempt number**. A crash does not exhaust the retry limit — `max_attempts` is the limit on adjudications that fell short of the goal, not a limit on how many times the process died. **The absence of `verdict_assigned` for that attempt is the marker that it did not finish.**
 
-병렬 실행에서도 규칙은 같다. 처리는 task의 state로 결정되며, 몇 개가 동시에 돌고 있었는지는 재개 판단에 들어가지 않는다. 어느 run에도 속하지 않는 워크트리는 `doctor`가 정리한다.
+Even under parallel execution the rule is the same. Handling is determined by the task's state, and how many were running at once does not enter into the resume decision. A worktree that belongs to no run is cleaned up by `doctor`.
 
 ---
 
 ## `harness doctor`
 
-진단과 복구를 한다. 실행해도 안전하다.
+It performs diagnosis and recovery. It is safe to execute.
 
-| 검사 | 조치 |
+| Check | Action |
 |---|---|
-| `state == fold(journal)` | 불일치 시 journal 기준으로 state 재구성 |
-| journal `seq` 결번·역행 | 보고. 자동 수정하지 않는다 |
-| 고아 워크트리 | 어느 run 에도 속하지 않으면 제거 |
-| 스테일 락 | pid 생존을 확인하고 죽었으면 해제 |
-| 미아 outbox | 승격되지 않은 채 남은 attempt 디렉토리 정리 |
-| 어댑터 `preflight` | 등록된 모든 어댑터에 실행하고 **위 분류표 기준으로** prerequisite / system defect 를 구분해 보고 |
-| `.harness/` 구조 | 필수 파일 존재 여부 |
+| `state == fold(journal)` | On mismatch, reconstruct state from the journal |
+| journal `seq` gaps or running backwards | Report. It does not auto-fix |
+| Orphan worktree | Remove it if it belongs to no run |
+| Stale lock | Check whether the pid is alive and release it if it is dead |
+| Stray outbox | Clean up attempt directories left behind without being promoted |
+| adapter `preflight` | Execute it on every registered adapter and report prerequisite / system defect separately **by the classification table above** |
+| `.harness/` structure | Presence or absence of the required files |
 
-`doctor`는 journal을 수정하지 않는다. journal은 불변이다.
+`doctor` does not modify the journal. The journal is immutable.
 
 ---
 
-## `human_required` 런북
+## `human_required` Runbook
 
-사람이 개입해야 할 때 무엇을 보고 어떻게 되돌리는지가 문서에 있어야 한다. 없으면 개입은 추측이 된다.
+When a human has to intervene, what to look at and how to get back must be in the documentation. Without it, intervention becomes guesswork.
 
 ```
-1. 상황 파악
+1. Grasp the situation
    harness status
-   → 어느 task 가 어떤 reason 으로 human_required 인지 확인
+   → check which task is human_required and for what reason
 
-2. 증거 확인
+2. Check the evidence
    .harness/runs/<run-id>/tasks/<task-id>/verification.json
-   .harness/runs/<run-id>/journal.jsonl  (해당 task_id 로 필터)
-   → 하네스가 무엇을 관측했는지 확인. claim 은 참고만 한다.
+   .harness/runs/<run-id>/journal.jsonl  (filtered by that task_id)
+   → check what the harness observed. The claim is for reference only.
 
-3. reason 별 조치
+3. Action by reason
 ```
 
-| reason | 확인할 것 | 조치 | 복귀 |
+| reason | What to check | Action | Return |
 |---|---|---|---|
-| prerequisite | `precondition_checked` 이벤트의 실패 항목 | 환경 준비 (설치·로그인·env) | `harness run --resume <run-id>` |
-| 미승인 커맨드 | `command_policy_decision` 이벤트 | 커맨드를 검토하고 `.harness/approved_commands.yaml` 에 추가, 또는 task 수정 | `--resume` |
-| system defect 반복 | `error` 이벤트의 detail, transcript | 하네스·어댑터 수정 | 수정 후 `--resume` |
-| `handoff_missing` | `handoff_rejected` / `handoff_missing` 이벤트 | `outputs.required` 가 타당한지 재검토. 과한 요구면 `optional` 로 내린다 | task 수정 후 `--resume` |
-| `needs_replan` | `verdict_assigned` 의 reason | task 정의 수정 (AC 검증력, `allowed_paths`, 커맨드) | `harness analyze` 후 새 run |
-| `integration_conflict` | 충돌 파일 목록 | 수동 머지 또는 task 분할 | 해소 후 `--resume` |
-| `budget_exhausted` | `budget_checkpoint` 이벤트 | 예산 상향 또는 범위 축소 | 새 run |
+| prerequisite | The failed items of the `precondition_checked` event | Prepare the environment (install, login, env) | `harness run --resume <run-id>` |
+| Unapproved command | The `command_policy_decision` event | Examine the command and add it to `.harness/approved_commands.yaml`, or modify the task | `--resume` |
+| Repeated system defect | The `error` event's detail, transcript | Fix the harness or adapter | `--resume` after the fix |
+| `handoff_missing` | The `handoff_rejected` / `handoff_missing` event | Re-examine whether `outputs.required` is justified. If the demand is excessive, demote it to `optional` | `--resume` after modifying the task |
+| `needs_replan` | The reason of `verdict_assigned` | Modify the task definition (AC discriminating power, `allowed_paths`, commands) | A new run after `harness analyze` |
+| `integration_conflict` | The list of conflicting files | Manual merge or splitting the task | `--resume` after it is resolved |
+| `budget_exhausted` | The `budget_checkpoint` event | Raise the budget or reduce the scope | A new run |
 
 ---
 
-## 부분 실패에서의 종료
+## Termination on Partial Failure
 
-DAG의 일부가 막혀도 **run은 정상 종료한다.** 프로세스를 죽이거나 나머지를 포기하지 않는다.
+Even when part of the DAG is blocked, **the run terminates normally.** It does not kill the process or give up on the rest.
 
-- `blocked`는 해당 task와 그 하위 의존만 막는다.
-- 막히지 않은 가지는 끝까지 진행한다.
-- `run_finished` 이벤트와 종료 요약에 무엇이 왜 막혔는지, 무엇이 완료되었는지, open_debts가 무엇인지 적는다.
+- `blocked` blocks only that task and its downstream dependents.
+- Branches of the DAG that are not blocked run to completion.
+- The `run_finished` event and the end-of-run summary record what was blocked and why, what was completed, and what the open_debts are.
 
-한 단계의 실패가 런 전체를 중단시키면 사용자는 매번 처음부터 다시 시작해야 한다. 그것은 재개 기능이 있는 것보다 나쁘다.
+If one stage's failure aborts the whole run, the user has to start over from the beginning every time. That is worse than having a resume feature.
