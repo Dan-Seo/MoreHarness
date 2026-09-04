@@ -10,7 +10,7 @@ changed paths itself. Why it was built that way, and the whole pipeline, are in 
 
 ## State
 
-`0.1.0`. Milestones M0–M9 are all implemented and 635 tests pass. That the kernel works with the entire
+`0.2.0`. Milestones M0–M9 are all implemented and 635 tests pass. That the kernel works with the entire
 optional layer removed is enforced by `tests/test_kernel_only.py` in a subprocess.
 
 The scope confirmed in real use is still narrow — one adapter, the `claude` CLI; one capability eval
