@@ -25,12 +25,17 @@ fixture (`evals/capability/slugify`); one profile, `worktree`. Everything else i
 
 ## Installation
 
-```
+It is not on PyPI. Install it from a clone.
+
+```bash
+git clone https://github.com/Dan-Seo/MoreHarness.git
+cd MoreHarness
 pip install .
 ```
 
-The `harness` command is installed. To use it straight from the repository without installing,
-`python -m harness` is the same.
+That installs the `harness` command. From then on you run it inside **your own** project
+repository, not in this one. To use it without installing, `python -m harness` from the clone root
+is the same.
 
 ## 5-minute quickstart
 

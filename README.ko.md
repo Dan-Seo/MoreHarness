@@ -27,11 +27,16 @@ agent는 코드를 쓰고 자기가 무엇을 했는지 보고한다. 하네스�
 
 ## 설치
 
-```
+PyPI 에 없다. 클론해서 설치한다.
+
+```bash
+git clone https://github.com/Dan-Seo/MoreHarness.git
+cd MoreHarness
 pip install .
 ```
 
-`harness` 명령이 설치된다. 설치 없이 저장소에서 바로 쓰려면 `python -m harness`도 같다.
+`harness` 명령이 설치된다. 그다음부터는 이 저장소가 아니라 **작업할 프로젝트 저장소** 안에서
+실행한다. 설치 없이 쓰려면 클론 루트에서 `python -m harness`도 같다.
 
 ## 5분 quickstart
 
