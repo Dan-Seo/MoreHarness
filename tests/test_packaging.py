@@ -64,6 +64,18 @@ def test_runtime_resources_live_inside_the_package():
         assert PACKAGE_DIR in directory.parents, f"{directory} 가 패키지 밖이다"
 
 
+def test_the_package_and_the_project_declare_the_same_version():
+    """설치본의 버전과 `harness.__version__` 이 갈라지면 무엇이 설치됐는지 알 수 없다."""
+    pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    declared = next(
+        line.split("=", 1)[1].strip().strip('"')
+        for line in pyproject.splitlines()
+        if line.startswith("version")
+    )
+    assert declared == harness.__version__
+    assert declared != "0.0.0", "배포 버전을 정해야 한다"
+
+
 def test_wheel_carries_every_module_and_resource(wheel: Path):
     names = set(zipfile.ZipFile(wheel).namelist())
     missing = [entry for entry in REQUIRED_ENTRIES if entry not in names]

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "harness-framework"
-version = "0.0.0"
+version = "0.1.0"
 description = "Agents propose. Harness verifies. Evidence decides."
 requires-python = ">=3.11"
 dependencies = ["PyYAML>=6.0", "jsonschema>=4.20"]
