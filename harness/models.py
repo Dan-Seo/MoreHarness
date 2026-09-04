@@ -63,6 +63,22 @@ class TaskKind(StrEnum):
     READONLY = "readonly"
 
 
+class DevelopmentMode(StrEnum):
+    """docs/03 — 한 attempt 의 모습. 선언하지 않은 task 는 STANDARD 다."""
+
+    STANDARD = "standard"
+    TDD = "tdd"
+
+
+@dataclass(frozen=True)
+class Development:
+    """docs/03 의 `development` 블록. 단계별 스코프의 의미는 docs/06 이 canonical 이다."""
+
+    mode: DevelopmentMode = DevelopmentMode.STANDARD
+    test_paths: tuple[str, ...] = ()
+    implementation_paths: tuple[str, ...] = ()
+
+
 class RiskLevel(StrEnum):
     TRIVIAL = "trivial"
     LOW = "low"
@@ -197,4 +213,5 @@ class Task:
     acceptance: tuple[AcceptanceCriterion, ...] = ()
     required_outputs: tuple[str, ...] = ()
     optional_outputs: tuple[str, ...] = ()
+    development: Development = field(default_factory=Development)
     spec_hash: str | None = None

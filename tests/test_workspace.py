@@ -7,9 +7,15 @@
 import subprocess
 
 import pytest
-from conftest import git
 
-from harness.exec.workspace import Workspaces, integration_branch, scratch_root, task_branch
+from harness.exec import workspace as workspace_module
+from harness.exec.workspace import (
+    Workspaces,
+    integration_branch,
+    scratch_root,
+    task_branch,
+)
+from harness.git import GitResult
 from harness.models import ExecutionProfile
 
 
@@ -20,7 +26,9 @@ def out(repo, *args):
 
 @pytest.fixture
 def spaces(repo, tmp_path):
-    return Workspaces(repo, "run-1", ExecutionProfile.WORKTREE, scratch=tmp_path / "scratch")
+    return Workspaces(
+        repo, "run-1", ExecutionProfile.WORKTREE, scratch=tmp_path / "scratch"
+    )
 
 
 def write(workspace, name, text):
@@ -51,7 +59,9 @@ def test_each_attempt_gets_its_own_outbox(spaces):
 
 def test_scratch_paths_are_scoped_to_the_repository(tmp_path):
     """run-id 는 시각에서 만들어진다. 저장소가 다른데 경로가 같으면 워크트리가 서로를 덮는다."""
-    assert scratch_root(tmp_path / "a", "run-1") != scratch_root(tmp_path / "b", "run-1")
+    assert scratch_root(tmp_path / "a", "run-1") != scratch_root(
+        tmp_path / "b", "run-1"
+    )
 
 
 # --------------------------------------------------------------------------- 통합 브랜치
@@ -59,7 +69,9 @@ def test_scratch_paths_are_scoped_to_the_repository(tmp_path):
 
 def test_the_integration_branch_starts_at_head(spaces, repo):
     spaces.open("T-001")
-    assert out(repo, "rev-parse", integration_branch("run-1")) == out(repo, "rev-parse", "HEAD")
+    assert out(repo, "rev-parse", integration_branch("run-1")) == out(
+        repo, "rev-parse", "HEAD"
+    )
 
 
 def test_the_user_branch_never_moves(spaces, repo):
@@ -187,19 +199,40 @@ def test_a_removed_workspace_is_no_longer_found(spaces):
     assert spaces.existing("T-001") is None
 
 
+def test_checkpoint_does_not_return_the_old_head_when_commit_fails(spaces, monkeypatch):
+    workspace = spaces.open("T-001")
+    write(workspace, "new_test.py", "def test_new():\n    assert False\n")
+    old_head = out(workspace.path, "rev-parse", "HEAD")
+    real_git = workspace_module.git
+
+    def reject_commit(args, cwd):
+        if "commit" in args:
+            return GitResult(1, "", "hook rejected commit")
+        return real_git(args, cwd)
+
+    monkeypatch.setattr(workspace_module, "git", reject_commit)
+
+    assert spaces.checkpoint(workspace, "red tests") is None
+    assert out(workspace.path, "rev-parse", "HEAD") == old_head
+
+
 # --------------------------------------------------------------------------- safe 프로파일
 
 
 def test_the_safe_profile_works_in_the_repository_itself(repo, tmp_path):
     """docs/05 — safe 에는 branch/worktree 분리가 없다. 있다고 말하지 않는다."""
-    spaces = Workspaces(repo, "run-1", ExecutionProfile.SAFE, scratch=tmp_path / "scratch")
+    spaces = Workspaces(
+        repo, "run-1", ExecutionProfile.SAFE, scratch=tmp_path / "scratch"
+    )
     workspace = spaces.open("T-001")
     assert workspace.path == repo
     assert workspace.branch is None
 
 
 def test_the_safe_profile_has_no_integration(repo, tmp_path):
-    spaces = Workspaces(repo, "run-1", ExecutionProfile.SAFE, scratch=tmp_path / "scratch")
+    spaces = Workspaces(
+        repo, "run-1", ExecutionProfile.SAFE, scratch=tmp_path / "scratch"
+    )
     workspace = spaces.open("T-001")
 
     assert spaces.integrate(workspace).ok
@@ -207,13 +240,17 @@ def test_the_safe_profile_has_no_integration(repo, tmp_path):
 
 
 def test_the_safe_profile_still_gets_an_outbox_outside_the_repository(repo, tmp_path):
-    spaces = Workspaces(repo, "run-1", ExecutionProfile.SAFE, scratch=tmp_path / "scratch")
+    spaces = Workspaces(
+        repo, "run-1", ExecutionProfile.SAFE, scratch=tmp_path / "scratch"
+    )
     workspace = spaces.open("T-001")
     assert repo not in workspace.outbox(1).parents
 
 
 def test_closing_a_safe_workspace_never_touches_the_repository(repo, tmp_path):
-    spaces = Workspaces(repo, "run-1", ExecutionProfile.SAFE, scratch=tmp_path / "scratch")
+    spaces = Workspaces(
+        repo, "run-1", ExecutionProfile.SAFE, scratch=tmp_path / "scratch"
+    )
     workspace = spaces.open("T-001")
     spaces.close(workspace, keep=False)
     assert (repo / "README.md").is_file()
@@ -224,7 +261,9 @@ def test_closing_a_safe_workspace_never_touches_the_repository(repo, tmp_path):
 
 def test_a_task_can_declare_its_own_profile(repo, tmp_path):
     """docs/03 — task 계약의 `profile` 이 run 기본값을 이긴다."""
-    spaces = Workspaces(repo, "run-1", ExecutionProfile.WORKTREE, scratch=tmp_path / "scratch")
+    spaces = Workspaces(
+        repo, "run-1", ExecutionProfile.WORKTREE, scratch=tmp_path / "scratch"
+    )
     workspace = spaces.open("T-001", profile=ExecutionProfile.SAFE)
     assert workspace.path == repo
 

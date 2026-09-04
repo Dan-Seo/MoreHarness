@@ -21,6 +21,7 @@ PROJECT = Path(__file__).resolve().parents[1]
 OPTIONS = (
     "harness.exec.scheduler",
     "harness.exec.review",
+    "harness.exec.tdd",
     "harness.spec",
     "harness.analyze",
     "harness.converge",

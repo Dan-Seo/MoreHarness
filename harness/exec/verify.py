@@ -171,12 +171,23 @@ class Evidence:
     next_state: State | None = None
 
 
-def run_baseline(task: Task, policy: CommandPolicy, cwd: Path | str, timeout_s: int) -> Baseline:
-    """agent 실행 전, 하네스가 직접 실행한다."""
+def run_baseline(
+    task: Task,
+    policy: CommandPolicy,
+    cwd: Path | str,
+    timeout_s: int,
+    criteria: Sequence[Any] | None = None,
+) -> Baseline:
+    """agent 실행 전, 하네스가 직접 실행한다.
+
+    `criteria` 는 실행할 AC 를 좁힌다. TDD 모드는 baseline 을 두 조각으로 나눠 재는데,
+    `expect_fail_before` AC 의 before 는 테스트가 존재하는 시점(red gate)이기 때문이다
+    (docs/06). 합집합은 여전히 AC 하나당 관측 하나다.
+    """
     return Baseline(
         tuple(
             _observe(criterion, policy, cwd, timeout_s, GREEN_BEFORE, RED_BEFORE)
-            for criterion in task.acceptance
+            for criterion in (task.acceptance if criteria is None else criteria)
         )
     )
 

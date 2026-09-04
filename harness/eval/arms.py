@@ -247,7 +247,13 @@ def _features(arm: str) -> frozenset[str]:
 def _run_harness(repo: Path, config: Config, arm: str, run_id: str, scratch: Path) -> Store:
     """docs/11 의 arm 조립표. lite 는 커널만이고, full 은 `harness run` 과 같다."""
     features = _features(arm)
-    builder = review = None
+    builder = review = tdd = None
+    if features:
+        # TDD 는 ablation 축이 아니라 task 가 선언하는 모드다 (docs/06). lite 는 커널만이므로
+        # 여기 없고, 그 arm 에서 TDD task 는 fail-closed 로 error 다.
+        from harness.exec.tdd import TddStage
+
+        tdd = TddStage(repo, config)
     if "context" in features:
         from harness.context.builder import ContextBuilder
 
@@ -269,6 +275,7 @@ def _run_harness(repo: Path, config: Config, arm: str, run_id: str, scratch: Pat
         scratch=scratch,
         context_builder=builder,
         review_stage=review,
+        tdd_stage=tdd,
     )
 
 

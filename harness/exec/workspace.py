@@ -115,11 +115,20 @@ class Workspaces:
             # 통합 브랜치의 **현재 tip** 에서 분기한다. run 시작 시점의 HEAD 에서 분기하면
             # 앞선 task 가 만든 것이 이 워크스페이스에 없다 (docs/05).
             result = git(
-                ["worktree", "add", "-b", branch, str(path), integration_branch(self.run_id)],
+                [
+                    "worktree",
+                    "add",
+                    "-b",
+                    branch,
+                    str(path),
+                    integration_branch(self.run_id),
+                ],
                 cwd=self.repo,
             )
             if result.exit_code != 0:
-                raise HarnessError(f"{task_id} 의 워크트리를 만들 수 없다: {result.stderr.strip()}")
+                raise HarnessError(
+                    f"{task_id} 의 워크트리를 만들 수 없다: {result.stderr.strip()}"
+                )
             return Workspace(task_id, path, branch, root)
 
     def existing(self, task_id: str) -> Workspace | None:
@@ -142,18 +151,38 @@ class Workspaces:
             return MergeResult(True, detail="safe 프로파일에는 통합이 없다")
 
         with self._lock:
-            self._commit(workspace)
+            if not self._commit(workspace):
+                return MergeResult(False, detail="task 변경을 커밋할 수 없다")
             integration = integration_branch(self.run_id)
 
-            merged = git([*COMMITTER, "merge", "--no-edit", integration], cwd=workspace.path)
+            merged = git(
+                [*COMMITTER, "merge", "--no-edit", integration], cwd=workspace.path
+            )
             if merged.exit_code != 0:
                 conflicts = self._conflicts(workspace.path)
                 git(["merge", "--abort"], cwd=workspace.path)
-                return MergeResult(False, conflicts, (merged.stdout + merged.stderr).strip())
+                return MergeResult(
+                    False, conflicts, (merged.stdout + merged.stderr).strip()
+                )
 
             # task 브랜치가 통합 브랜치를 포함하므로 이것은 fast-forward 다.
             git(["branch", "-f", integration, workspace.branch], cwd=self.repo)
             return MergeResult(True)
+
+    def checkpoint(self, workspace: Workspace, message: str) -> str | None:
+        """워크스페이스의 현재 변경을 task 브랜치에 커밋하고 HEAD 를 돌려준다.
+
+        단계 경계를 git 이 아는 지점으로 만든다 (docs/06 의 TDD 단계 스코프). 이후
+        관측이 이 sha 대비이므로 **agent 가 커밋으로 변경을 감춰도 같은 diff 로
+        관측된다.** 브랜치가 없는 프로파일에는 고정할 자리가 없으므로 `None` 이다.
+        """
+        if workspace.branch is None:
+            return None
+        with self._lock:
+            if not self._commit(workspace, message):
+                return None
+            result = git(["rev-parse", "HEAD"], cwd=workspace.path)
+            return result.stdout.strip() if result.exit_code == 0 else None
 
     # ----------------------------------------------------------------- 정리
 
@@ -171,22 +200,34 @@ class Workspaces:
 
     def _ensure_integration(self) -> None:
         branch = integration_branch(self.run_id)
-        if git(["rev-parse", "--verify", "--quiet", branch], cwd=self.repo).exit_code == 0:
+        if (
+            git(["rev-parse", "--verify", "--quiet", branch], cwd=self.repo).exit_code
+            == 0
+        ):
             return
         result = git(["branch", branch, "HEAD"], cwd=self.repo)
         if result.exit_code != 0:
             raise HarnessError(f"통합 브랜치를 만들 수 없다: {result.stderr.strip()}")
 
-    def _commit(self, workspace: Workspace) -> None:
-        """agent 가 커밋했는지는 판정에 영향을 주지 않는다. 남은 변경을 하네스가 마저 커밋한다."""
-        git(["add", "-A"], cwd=workspace.path)
-        if not git(["status", "--porcelain"], cwd=workspace.path).stdout.strip():
-            return
-        git([*COMMITTER, "commit", "-q", "-m", f"harness: {workspace.task_id}"], cwd=workspace.path)
+    def _commit(self, workspace: Workspace, message: str | None = None) -> bool:
+        """남은 변경을 커밋한다. 단계 경계가 실제로 고정됐을 때만 성공이다."""
+        added = git(["add", "-A"], cwd=workspace.path)
+        if added.exit_code != 0:
+            return False
+        status = git(["status", "--porcelain"], cwd=workspace.path)
+        if status.exit_code != 0:
+            return False
+        if not status.stdout.strip():
+            return True
+        message = message or f"harness: {workspace.task_id}"
+        committed = git([*COMMITTER, "commit", "-q", "-m", message], cwd=workspace.path)
+        return committed.exit_code == 0
 
     def _discard(self, path: Path, branch: str) -> None:
         self._remove_worktree(path)
-        git(["branch", "-D", branch], cwd=self.repo)  # 없으면 실패한다. 그것으로 충분하다.
+        git(
+            ["branch", "-D", branch], cwd=self.repo
+        )  # 없으면 실패한다. 그것으로 충분하다.
 
     def _remove_worktree(self, path: Path) -> None:
         if path.exists():
@@ -198,7 +239,9 @@ class Workspaces:
     @staticmethod
     def _conflicts(path: Path) -> tuple[str, ...]:
         result = git(["diff", "--name-only", "--diff-filter=U"], cwd=path)
-        return tuple(line.strip() for line in result.stdout.splitlines() if line.strip())
+        return tuple(
+            line.strip() for line in result.stdout.splitlines() if line.strip()
+        )
 
 
 def _repo_key(repo: Path) -> str:

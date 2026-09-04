@@ -37,6 +37,7 @@ class EventType(StrEnum):
     RISK_ESCALATED = "risk_escalated"
     REVIEW_FINDING = "review_finding"
     FIXER_DISPATCHED = "fixer_dispatched"
+    TDD_PHASE_COMPLETED = "tdd_phase_completed"
     VERDICT_ASSIGNED = "verdict_assigned"
     BUDGET_CHECKPOINT = "budget_checkpoint"
     RUN_FINISHED = "run_finished"
@@ -76,6 +77,7 @@ REQUIRED_PAYLOAD_KEYS: dict[EventType, frozenset[str]] = {
         {"wave", "reviewer", "severity", "rule", "file", "line", "blocking"}
     ),
     EventType.FIXER_DISPATCHED: frozenset({"wave", "scope"}),
+    EventType.TDD_PHASE_COMPLETED: frozenset({"phase", "base", "ok", "detail"}),
     EventType.VERDICT_ASSIGNED: frozenset({"verdict", "attempt", "reason", "next_state"}),
     EventType.BUDGET_CHECKPOINT: frozenset({"tokens", "cost_usd", "wall_time_s", "remaining"}),
     EventType.RUN_FINISHED: frozenset({"summary", "open_debts", "human_required"}),

@@ -11,7 +11,10 @@ import argparse
 import json
 import shutil
 import sys
+from dataclasses import dataclass
+from importlib import import_module
 from pathlib import Path
+from typing import Any
 
 from harness.adapters.registry import build
 from harness.config import HARNESS_DIR, Config, load
@@ -270,17 +273,18 @@ def _run(args: argparse.Namespace) -> int:
 
         config = load(repo)
         dag = Dag(load_tasks(repo))
-        builder, review, execute, missing = _optional_stages(repo, config)
-        if missing:
-            print(f"옵션 없이 돈다 (docs/02): {', '.join(missing)}")
-        store = execute(
+        stages = _optional_stages(repo, config)
+        if stages.missing:
+            print(f"옵션 없이 돈다 (docs/02): {', '.join(stages.missing)}")
+        store = stages.execute(
             repo,
             config,
             dag,
             run_id=args.resume or args.run_id,
             resume=bool(args.resume),
-            context_builder=builder,
-            review_stage=review,
+            context_builder=stages.builder,
+            review_stage=stages.review,
+            tdd_stage=stages.tdd,
         )
     except HarnessError as exc:
         print(f"실행할 수 없다: {exc}")
@@ -299,36 +303,44 @@ def _analyze_gate(repo: Path) -> str:
     return gate(repo)
 
 
-def _optional_stages(repo: Path, config: Config):
+@dataclass(frozen=True)
+class _Stages:
+    """cli 가 조립한 옵션 레이어. 커널에 주입되는 것 전부다."""
+
+    builder: Any = None
+    review: Any = None
+    tdd: Any = None
+    execute: Any = run_dag
+    missing: tuple[str, ...] = ()
+
+
+def _optional_stages(repo: Path, config: Config) -> _Stages:
     """옵션 레이어 (docs/02) — cli 가 조립해 커널에 주입한다. 커널은 import 하지 않는다.
 
     없으면 없는 채로 돈다. 그것이 M8 의 완료 기준이다 — 옵션을 전부 제거해도 커널은
     파이프라인을 끝까지 돌린다. 무엇이 빠졌는지는 사람에게 말한다.
     """
-    builder = review = None
+    stages = {}
     missing = []
-    try:
-        from harness.context.builder import ContextBuilder
-    except ImportError:
-        missing.append("context")
-    else:
-        builder = ContextBuilder(repo, config)
-    try:
-        from harness.exec.review import ReviewStage
-    except ImportError:
-        missing.append("review")
-    else:
-        review = ReviewStage(repo, config)
+    for key, name, module_path, attribute in (
+        ("builder", "context", "harness.context.builder", "ContextBuilder"),
+        ("review", "review", "harness.exec.review", "ReviewStage"),
+        ("tdd", "tdd", "harness.exec.tdd", "TddStage"),
+    ):
+        try:
+            module = import_module(module_path)
+        except ImportError:
+            missing.append(name)
+        else:
+            stages[key] = getattr(module, attribute)(repo, config)
 
     execute = run_dag
     if config.max_parallel > 1:
         try:
-            from harness.exec import scheduler
-
-            execute = scheduler.run_dag
+            execute = import_module("harness.exec.scheduler").run_dag
         except ImportError:
             missing.append("scheduler")
-    return builder, review, execute, tuple(missing)
+    return _Stages(**stages, execute=execute, missing=tuple(missing))
 
 
 # --------------------------------------------------------------------------- 스펙 파이프라인 (M6)

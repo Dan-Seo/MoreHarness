@@ -49,6 +49,17 @@
         }
       }
     },
+    "development": {
+      "type": "object",
+      "description": "docs/03 — 한 attempt 의 모습. 단계별 스코프는 docs/06 이 canonical 이다.",
+      "properties": {
+        "mode": {"enum": ["standard", "tdd"]},
+        "test_paths": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "implementation_paths": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+      },
+      "if": {"properties": {"mode": {"const": "tdd"}}, "required": ["mode"]},
+      "then": {"required": ["test_paths", "implementation_paths"]}
+    },
     "outputs": {
       "type": "object",
       "properties": {

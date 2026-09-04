@@ -79,6 +79,13 @@ harness run --resume <run-id>
 | `executed`, `verifying`, `reviewing`, `repairing` | agent 실행은 끝났다. 워크트리와 outbox가 남아 있으면 **그 attempt의 검증부터 재개한다** — baseline은 journal의 `ac_baseline_executed`로 복원하므로 agent를 다시 부르지 않는다. 남아 있지 않으면 그 attempt를 처음부터 |
 | `human_required`, `needs_replan`, `integration_conflict` | 재개하지 않는다. 사람이 조치한 뒤 새 run 또는 명시적 재개 |
 
+TDD 모드(06)는 projection state보다 단계 증거를 먼저 본다. 한 attempt 안의 첫
+`agent_finished`만으로도 state가 `executed`가 되기 때문이다. 워크트리가 남아 있을 때
+`tdd_phase_completed {phase: implementation, ok: true}`가 있으면 검증부터, 성공한
+`red_gate`와 완전한 baseline은 있지만 성공한 `implementation`이 없으면 red gate 커밋을
+기준으로 implementation부터 재개한다. 그 밖에는 워크트리를 정리하고 attempt를 처음부터
+다시 시작한다. 워크트리가 없을 때도 예외 없이 처음부터 시작한다.
+
 죽은 attempt는 **같은 attempt 번호로** 다시 시작한다. 크래시는 재시도 한도를 소진시키지 않는다 — `max_attempts`는 판정이 목표 미달을 보였을 때의 한도이지 프로세스가 죽은 횟수의 한도가 아니다. **그 attempt에 `verdict_assigned`가 없다는 것이 끝나지 않았다는 표시다.**
 
 병렬 실행에서도 규칙은 같다. 처리는 task의 state로 결정되며, 몇 개가 동시에 돌고 있었는지는 재개 판단에 들어가지 않는다. 어느 run에도 속하지 않는 워크트리는 `doctor`가 정리한다.

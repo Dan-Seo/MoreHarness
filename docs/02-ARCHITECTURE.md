@@ -38,6 +38,7 @@ harness/
     verify.py         # AC 실행, diff 판정, 경로 스코프, verdict 산출
     handoff.py        # outbox 아티팩트 정규화, required 게이트, TaskOutput 병합
     review.py         # 리뷰 wave, finding 병합, fixer
+    tdd.py            # TDD 모드 — test-author / red gate / implementation 단계 (06)
 
   context/
     builder.py        # 계층 조립, provenance 표시, 프롬프트 구획 규약 문구
@@ -106,6 +107,7 @@ cli
 ```
 exec/scheduler   (병렬)
 exec/review      (독립 리뷰)
+exec/tdd         (TDD 모드 — 없으면 development.mode: tdd 인 task 가 fail-closed 로 error 다)
 spec · analyze · converge   (스펙 파이프라인 — 저작과 게이트)
 risk             (티어 결정 — 없으면 declared_risk 를 그대로 쓴다)
 context/*        (고급 선택 — 없으면 task 계약에 명시된 파일만 넣는다)

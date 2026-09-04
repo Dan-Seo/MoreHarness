@@ -134,6 +134,23 @@
 
 ---
 
+## M9 — TDD 강제 모드
+
+**만드는 것**
+
+`development.mode`(03), `exec/tdd` — test-author 디스패치, red gate, implementation 디스패치,
+단계 스코프 판정, `tdd_phase_completed` 이벤트, red gate 이후 재개.
+
+**완료 기준**
+
+- test-author 단계가 구현 경로를 건드리면 **하네스가 diff 로 탐지해** rejected 된다. 프롬프트 지시가 아니라 증거로 막는다.
+- red gate 에서 AC 가 이미 green 이면 **implementation 을 디스패치하지 않는다.**
+- implementation 단계가 테스트를 고치거나 지우면 탐지된다. **커밋으로 감춰도 같은 diff 로 관측된다.**
+- red gate 이후 크래시한 run 을 `--resume` 하면 test-author 를 다시 실행하지 않는다.
+- `development` 를 선언하지 않은 기존 task 의 동작이 바뀌지 않는다.
+
+---
+
 ## 구현 세션을 위한 리허설 체크리스트
 
 각 마일스톤에 착수하는 세션은 **이 문서 세트만 읽고** 시작할 수 있어야 한다. 다음 질문의 답이 문서 안에 없으면 그것은 설계의 빈틈이지 구현자가 정할 일이 아니다.

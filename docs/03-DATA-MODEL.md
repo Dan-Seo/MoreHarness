@@ -58,6 +58,11 @@ acceptance:                   # 하네스가 직접 실행한다. Command Policy
   - cmd: ["npm", "test", "--", "tests/api"]
     expect_fail_before: true
 
+development:                  # 선언하지 않으면 mode: standard 다
+  mode: tdd                   # standard | tdd
+  test_paths:           ["tests/api/**"]
+  implementation_paths: ["src/api/**"]
+
 outputs:
   required: [public_api]      # 다음 task 실행에 반드시 필요한 agent 산출 필드
   optional: [decisions]
@@ -80,6 +85,17 @@ spec_hash: "sha256:..."       # 참조한 spec 의 해시. 드리프트 검출�
 | `implementation` | 비어 있지 않아야 한다 | 코드 변경 |
 | `readonly` | 비어 있어야 한다 | 조사·확인 |
 | `analysis` | 무관 | 산출물이 handoff 뿐인 작업 |
+
+### `development` 가 결정하는 것
+
+| `mode` | 한 attempt 의 모습 |
+|---|---|
+| `standard` | 디스패치 한 번. 기본값이며 `development` 를 선언하지 않은 task 가 여기 속한다 |
+| `tdd` | test-author → red gate → implementation → green gate. 디스패치 두 번 |
+
+`tdd` 는 `test_paths` 와 `implementation_paths` 를 요구한다. 둘 다 05 의 glob 방언이며
+저장소 루트 기준이다. 단계마다 어느 목록이 허용이고 어느 목록이 금지인지, 각 게이트가
+무엇을 요구하는지는 06 이 canonical 이다.
 
 ---
 
@@ -288,11 +304,20 @@ state.json      fold(journal) 의 스냅샷              <- 파생 캐시
 | `risk_escalated` | effective_risk 상향 | `declared`, `path_floor`, `diff_floor`, `effective` |
 | `review_finding` | 리뷰어 지적 | `wave`, `reviewer`, `severity`, `rule`, `file`, `line`, `blocking` |
 | `fixer_dispatched` | fixer 호출 | `wave`, `scope` (`code` 또는 `handoff`) |
+| `tdd_phase_completed` | TDD 단계 경계 | `phase`, `base`, `ok`, `detail` |
 | `verdict_assigned` | attempt 종료 | `verdict`, `attempt`, `reason`, `next_state` |
 | `budget_checkpoint` | 예산 확인 | `tokens`, `cost_usd`, `wall_time_s`, `remaining` |
 | `run_finished` | run 종료 | `summary`, `open_debts`, `human_required` |
 
 `classification`은 `green_before | red_before` (baseline) 또는 `green | red` (post)다.
+`ac_baseline_executed`는 재개 시 분할 baseline을 원래 선언 순서로 복원할 수 있도록 선택
+필드 `criterion_index`도 기록한다. 이전 journal에 이 필드가 없으면 `cmd`와
+`expect_fail_before`의 occurrence 순서로 복원한다.
+
+`tdd_phase_completed`의 `phase`는 `test_author | red_gate | implementation`이고 `base`는 그
+단계의 diff 관측 기준(커밋 sha)이다. 단계가 실제로 끝난 뒤 기록하며 `ok: true`만 재개
+증거로 쓴다. **state를 바꾸지 않는 증거 이벤트다.** green gate를 위한 이벤트는 따로 두지
+않는다 — 그 결과는 `ac_post_executed`의 `differential`이다.
 
 `agent_finished`의 `usage`와 `duration_s`가 11의 비용·속도 지표 전부의 원천이다. **별도 계측 코드를 두지 않는다.**
 
@@ -318,6 +343,7 @@ state.json      fold(journal) 의 스냅샷              <- 파생 캐시
       tasks/T-003/
         context.manifest.json
         prompt.md
+        prompt.test-author.md  prompt.implementation.md   # TDD 모드의 단계 프롬프트 — 06
         claim.json      | claim.invalid.json
         handoff.json    | handoff.invalid.json
         verification.json

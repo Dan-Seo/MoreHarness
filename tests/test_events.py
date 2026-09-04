@@ -30,6 +30,7 @@ CANONICAL_EVENTS = {
     "risk_escalated": {"declared", "path_floor", "diff_floor", "effective"},
     "review_finding": {"wave", "reviewer", "severity", "rule", "file", "line", "blocking"},
     "fixer_dispatched": {"wave", "scope"},
+    "tdd_phase_completed": {"phase", "base", "ok", "detail"},
     "verdict_assigned": {"verdict", "attempt", "reason", "next_state"},
     "budget_checkpoint": {"tokens", "cost_usd", "wall_time_s", "remaining"},
     "run_finished": {"summary", "open_debts", "human_required"},

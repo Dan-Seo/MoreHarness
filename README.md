@@ -10,7 +10,7 @@ agent는 코드를 쓰고 자기가 무엇을 했는지 보고한다. 하네스�
 
 ## 상태
 
-`0.1.0`. 마일스톤 M0~M8이 전부 구현되어 있고 테스트 596개가 통과한다. 옵션 레이어를 전부
+`0.1.0`. 마일스톤 M0~M9가 전부 구현되어 있고 테스트 628개가 통과한다. 옵션 레이어를 전부
 제거해도 커널이 동작한다는 것은 `tests/test_kernel_only.py`가 서브프로세스로 강제한다.
 
 실사용으로 확인된 범위는 아직 좁다 — 어댑터는 `claude` CLI 하나, 능력 eval fixture는 하나
@@ -67,6 +67,37 @@ agent_timeout_s: 900
 같은 파일의 `command_policy`가 **하네스가 실행하는 모든 커맨드**를 통과시킨다. 기본값은
 fail-closed이고, 무엇이 자동 실행 승인되었는지는 거기 보이는 것이 전부다. 쓰기 전에 읽고
 프로젝트에 맞게 고친다.
+
+## TDD 강제 모드
+
+task 가 `development.mode: tdd` 를 선언하면 하네스가 red→green 순서를 **직접 관측한다.**
+"TDD 로 했다"는 agent 의 보고는 증거가 아니다.
+
+```yaml
+# tasks/T-003.task.yaml
+acceptance:
+  - cmd: ["python", "-m", "pytest", "-q", "tests/api"]
+    expect_fail_before: true      # red gate 가 이 커맨드로 red 를 확인한다
+
+development:
+  mode: tdd
+  test_paths:           ["tests/api/**"]
+  implementation_paths: ["src/api/**"]
+```
+
+한 attempt 가 두 번 디스패치된다.
+
+```
+test-author  →  하네스가 diff 를 본다 (구현 경로를 건드리면 rejected)
+             →  테스트를 커밋해 관측 기준을 고정한다
+red gate     →  하네스가 AC 를 직접 실행한다. green 이면 구현을 디스패치하지 않는다
+implementation → 하네스가 red gate 커밋 대비 diff 를 본다
+             →  테스트를 고치거나 지우면 커밋해서 감춰도 탐지된다
+green gate   →  기존 차등 판정 — red→green 과 회귀를 함께 본다
+```
+
+기존 verified 조건이 약해지지 않는다. TDD 는 증거를 더할 뿐이다. 계약은
+[`docs/06-VERIFICATION-REVIEW.md`](docs/06-VERIFICATION-REVIEW.md)가 canonical 이다.
 
 ## 무엇을 보증하지 않는가
 

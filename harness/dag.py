@@ -15,7 +15,15 @@ from typing import Any, Collection, Mapping
 import yaml
 
 from harness.errors import TaskDefinitionError
-from harness.models import AcceptanceCriterion, ExecutionProfile, RiskLevel, Task, TaskKind
+from harness.models import (
+    AcceptanceCriterion,
+    Development,
+    DevelopmentMode,
+    ExecutionProfile,
+    RiskLevel,
+    Task,
+    TaskKind,
+)
 from harness.schemas import first_error
 
 TASKS_DIR = "tasks"
@@ -123,7 +131,23 @@ def _load_one(path: Path) -> Task:
         acceptance=tuple(_criterion(entry) for entry in (data.get("acceptance") or ())),
         required_outputs=tuple(outputs.get("required") or ()),
         optional_outputs=tuple(outputs.get("optional") or ()),
+        development=_development(path, data.get("development")),
         spec_hash=data.get("spec_hash"),
+    )
+
+
+def _development(path: Path, raw: Any) -> Development:
+    """docs/03 — 선언하지 않으면 standard 다. 필수 필드는 스키마가 이미 강제했다."""
+    if not raw:
+        return Development()
+    try:
+        mode = DevelopmentMode(raw.get("mode", DevelopmentMode.STANDARD))
+    except ValueError as exc:
+        raise TaskDefinitionError(f"{path.name} 의 development.mode 를 알 수 없다: {exc}") from exc
+    return Development(
+        mode=mode,
+        test_paths=tuple(raw.get("test_paths") or ()),
+        implementation_paths=tuple(raw.get("implementation_paths") or ()),
     )
 
 

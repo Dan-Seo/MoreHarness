@@ -33,6 +33,7 @@
         "risk_escalated",
         "review_finding",
         "fixer_dispatched",
+        "tdd_phase_completed",
         "verdict_assigned",
         "budget_checkpoint",
         "run_finished"

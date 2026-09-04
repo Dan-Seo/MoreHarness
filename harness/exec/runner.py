@@ -16,6 +16,7 @@ import hashlib
 import json
 import os
 import shutil
+from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -31,7 +32,7 @@ from harness.exec import handoff as handoff_module
 from harness.exec import verify as verify_module
 from harness.exec.workspace import MergeResult, Workspace, Workspaces
 from harness.git import git
-from harness.models import ExecutionProfile, State, Task, Verdict
+from harness.models import DevelopmentMode, ExecutionProfile, State, Task, Verdict
 from harness.policy import CommandPolicy, PolicyVerdict, load_approvals
 from harness.probes import check_all, matching_blocked_signal
 from harness.store import Store
@@ -71,6 +72,19 @@ ENV_PASSTHROUGH = (
 
 
 @dataclass(frozen=True)
+class ResumePoint:
+    """어느 attempt 를, 어느 단계부터 다시 할지. docs/10 의 재개 표다."""
+
+    attempt: int
+    from_verification: bool = False  # agent 실행은 끝났다. 검증부터 재개한다
+    from_implementation: bool = False  # TDD — red gate 는 통과했다 (docs/06)
+
+    @property
+    def reuse_workspace(self) -> bool:
+        return self.from_verification or self.from_implementation
+
+
+@dataclass(frozen=True)
 class AttemptOutcome:
     """attempt 하나의 결과.
 
@@ -81,6 +95,13 @@ class AttemptOutcome:
     verdict: Verdict | None = None
     reason: str | None = None
     next_state: State | None = None
+
+
+class _BudgetExhausted(Exception):
+    """Agent 호출 직전의 hard cap 검사에서 더 실행할 수 없다는 신호."""
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
 
 
 def new_run_id(now: datetime | None = None) -> str:
@@ -99,16 +120,21 @@ def run_dag(
     runner_cls: type["Runner"] | None = None,
     context_builder: Any = None,
     review_stage: Any = None,
+    tdd_stage: Any = None,
 ) -> Store:
     """DAG 를 끝까지 실행하고 journal 을 가진 Store 를 돌려준다.
 
     `resume` 이면 기존 run 의 journal 을 이어 쓴다. 무엇을 다시 하고 무엇을 건너뛸지는
     state 가 결정하며, 그 표는 docs/10 이 canonical 이다.
 
-    `runner_cls`·`context_builder`·`review_stage` 는 옵션 레이어(docs/02)가 커널에
-    끼어드는 확장점이다. 커널은 어느 것도 import 하지 않는다 — builder 가 없으면 task
-    계약에 명시된 파일만 넣고, review stage 가 없으면 verified 조건 4 는 공허하게
+    `runner_cls`·`context_builder`·`review_stage`·`tdd_stage` 는 옵션 레이어(docs/02)가
+    커널에 끼어드는 확장점이다. 커널은 어느 것도 import 하지 않는다 — builder 가 없으면
+    task 계약에 명시된 파일만 넣고, review stage 가 없으면 verified 조건 4 는 공허하게
     참이다 (docs/02 의 옵션 경계).
+
+    `tdd_stage` 만은 공허하게 참이 되지 않는다. TDD 모드를 선언한 task 를 검증할 수
+    없는데 표준 모드로 조용히 돌리면 하네스가 거짓말을 하게 되므로, 스테이지가 없으면
+    fail-closed 로 verdict `error` 다 (docs/06).
     """
     repo = Path(repo)
     if config.default_profile not in SUPPORTED_PROFILES:
@@ -117,16 +143,30 @@ def run_dag(
             "제공하지 못하는 격리를 제공한다고 말하지 않는다 (docs/05)"
         )
 
-    if config.default_profile is ExecutionProfile.CONTAINER and config.container is None:
-        raise HarnessError("container 프로파일인데 config 에 container 블록이 없다 (docs/05)")
+    if (
+        config.default_profile is ExecutionProfile.CONTAINER
+        and config.container is None
+    ):
+        raise HarnessError(
+            "container 프로파일인데 config 에 container 블록이 없다 (docs/05)"
+        )
 
     policy = CommandPolicy.from_config(
-        config.command_policy, load_approvals(repo / HARNESS_DIR / "approved_commands.yaml")
+        config.command_policy,
+        load_approvals(repo / HARNESS_DIR / "approved_commands.yaml"),
     )
     store = Store(_run_dir(repo, run_id, resume))
     cls = runner_cls or Runner
     return cls(
-        repo, config, store, policy, adapter, scratch, context_builder, review_stage
+        repo,
+        config,
+        store,
+        policy,
+        adapter,
+        scratch,
+        context_builder,
+        review_stage,
+        tdd_stage,
     ).run(dag, resume=resume)
 
 
@@ -141,6 +181,7 @@ class Runner:
         scratch: Path | str | None = None,
         context_builder: Any = None,
         review_stage: Any = None,
+        tdd_stage: Any = None,
     ) -> None:
         self.repo = repo
         self.config = config
@@ -150,7 +191,10 @@ class Runner:
         self._adapters: dict[str, Any] = {}
         self.context_builder = context_builder
         self.review_stage = review_stage
-        self.workspaces = Workspaces(repo, store.run_id, config.default_profile, scratch)
+        self.tdd_stage = tdd_stage
+        self.workspaces = Workspaces(
+            repo, store.run_id, config.default_profile, scratch
+        )
 
     # ----------------------------------------------------------------- 런 루프
 
@@ -196,7 +240,9 @@ class Runner:
             task_id
             for task_id in dag.tasks
             if task_id not in verified
-            and (task_id not in projections or projections[task_id].state not in stalled)
+            and (
+                task_id not in projections or projections[task_id].state not in stalled
+            )
         }
         return verified, remaining
 
@@ -217,10 +263,10 @@ class Runner:
         }
 
     def _run_task(self, task: Task) -> bool:
-        start, from_verification = self._resume_point(task)
+        point = self._resume_point(task)
         profile = task.profile or self.config.default_profile
 
-        for attempt in range(start, self.config.max_attempts + 1):
+        for attempt in range(point.attempt, self.config.max_attempts + 1):
             spent = self._over_budget()
             if spent:
                 workspace = None
@@ -228,13 +274,14 @@ class Runner:
             else:
                 workspace = (
                     self.workspaces.existing(task.id)
-                    if from_verification
+                    if point.reuse_workspace
                     else self.workspaces.open(task.id, profile)
                 )
-                outcome = self._attempt(
-                    task, attempt, workspace, from_verification=from_verification
-                )
-            from_verification = False
+                try:
+                    outcome = self._attempt(task, attempt, workspace, resume=point)
+                except _BudgetExhausted as exhausted:
+                    outcome = AttemptOutcome(Verdict.BUDGET_EXHAUSTED, exhausted.reason)
+            point = ResumePoint(attempt)  # 다음 attempt 는 처음부터다
             next_state = self._next_state(outcome, attempt)
             self.store.append(
                 EventType.VERDICT_ASSIGNED,
@@ -253,7 +300,7 @@ class Runner:
                 return next_state is State.DONE
         return False
 
-    def _resume_point(self, task: Task) -> tuple[int, bool]:
+    def _resume_point(self, task: Task) -> ResumePoint:
         """어느 attempt 부터, 어느 단계부터 다시 할지. docs/10 의 재개 표다.
 
         **verdict 가 없는 attempt 는 끝나지 않은 attempt 다.** 크래시는 재시도 한도를
@@ -261,14 +308,26 @@ class Runner:
         """
         projection = self.store.state.tasks.get(task.id)
         if projection is None or projection.attempt == 0:
-            return 1, False
+            return ResumePoint(1)
         if projection.verdict_attempt == projection.attempt:
-            return projection.attempt + 1, False
+            return ResumePoint(projection.attempt + 1)
 
-        resumable = (
-            projection.state in RESUMABLE and self.workspaces.existing(task.id) is not None
-        )
-        return projection.attempt, resumable
+        attempt = projection.attempt
+        if self.workspaces.existing(task.id) is None:
+            return ResumePoint(attempt)
+
+        # TDD 는 한 attempt 안에 agent 호출이 둘이다. 첫 호출의 `agent_finished` 만으로도
+        # projection 은 `executed` 가 되므로 일반 state 표보다 단계 증거를 먼저 본다.
+        stage = self._tdd(task)
+        if stage is not None:
+            if stage.implementation_completed(self, task, attempt):
+                return ResumePoint(attempt, from_verification=True)
+            if stage.resumes_at_implementation(self, task, attempt):
+                return ResumePoint(attempt, from_implementation=True)
+            return ResumePoint(attempt)
+
+        resumable = projection.state in RESUMABLE
+        return ResumePoint(attempt, from_verification=resumable)
 
     def _next_state(self, outcome: AttemptOutcome, attempt: int) -> State:
         """docs/03 의 verdict → next_state 표. "시도 소진" 의 기준은 config 의 max_attempts 다."""
@@ -339,16 +398,25 @@ class Runner:
         attempt: int,
         workspace: Workspace,
         *,
-        from_verification: bool = False,
+        resume: ResumePoint | None = None,
     ) -> AttemptOutcome:
+        resume = resume or ResumePoint(attempt)
+        if task.development.mode is DevelopmentMode.TDD and self.tdd_stage is None:
+            # fail-closed — 검증할 수 없는 모드를 조용히 표준 모드로 돌리지 않는다 (docs/06).
+            return AttemptOutcome(Verdict.ERROR, "tdd_mode_unavailable")
+
         task_dir = self.store.run_dir / "tasks" / task.id
         task_dir.mkdir(parents=True, exist_ok=True)
         cwd = workspace.path
 
-        baseline = self._baseline_from_journal(task, attempt) if from_verification else None
+        baseline = (
+            self._baseline_from_journal(task, attempt)
+            if resume.from_verification
+            else None
+        )
         if baseline is None:
             before, baseline, outbox, base, stop = self._up_to_dispatch(
-                task, attempt, workspace, task_dir
+                task, attempt, workspace, task_dir, resume
             )
             if stop:
                 return stop
@@ -361,7 +429,9 @@ class Runner:
         raw_claim, raw_handoff = outbox
         claim = handoff_module.normalize(handoff_module.CLAIM, raw_claim, task_dir)
         self._record_artifact(claim, task, attempt)
-        handoff = handoff_module.normalize(handoff_module.HANDOFF, raw_handoff, task_dir)
+        handoff = handoff_module.normalize(
+            handoff_module.HANDOFF, raw_handoff, task_dir
+        )
         self._record_artifact(handoff, task, attempt)
 
         differentials = self._post(task, attempt, baseline, cwd)
@@ -369,13 +439,20 @@ class Runner:
         diff = verify_module.observe_diff(
             cwd, self._harness_paths(cwd), base=base
         ).without(before)
-        violations = verify_module.check_paths(diff, task.allowed_paths, self._forbidden(task))
+        violations = (
+            *verify_module.check_paths(diff, task.allowed_paths, self._forbidden(task)),
+            *self._tdd_violations(task, attempt, workspace),
+        )
         for violation in violations:
-            self.store.append(EventType.PATH_VIOLATION, violation.to_payload(), task.id, attempt)
+            self.store.append(
+                EventType.PATH_VIOLATION, violation.to_payload(), task.id, attempt
+            )
 
         evidence = verify_module.judge(task, diff, differentials, violations)
         if evidence.verdict is not None or evidence.next_state is not None:
-            outcome = AttemptOutcome(evidence.verdict, evidence.reason, evidence.next_state)
+            outcome = AttemptOutcome(
+                evidence.verdict, evidence.reason, evidence.next_state
+            )
             outcome = self._reclassified(task, attempt, evidence, claim, outcome)
             self._write_verification(task_dir, task, evidence, handoff)
             return outcome
@@ -388,29 +465,54 @@ class Runner:
             )
             evidence = reviewed.evidence
             if reviewed.outcome is not None:
-                outcome = self._reclassified(task, attempt, evidence, claim, reviewed.outcome)
+                outcome = self._reclassified(
+                    task, attempt, evidence, claim, reviewed.outcome
+                )
                 self._write_verification(task_dir, task, evidence, handoff)
                 return outcome
 
+            tampered = self._tdd_violations(task, attempt, workspace)
+            if tampered:
+                for violation in tampered:
+                    self.store.append(
+                        EventType.PATH_VIOLATION,
+                        violation.to_payload(),
+                        task.id,
+                        attempt,
+                    )
+                self._write_verification(task_dir, task, evidence, handoff)
+                return AttemptOutcome(Verdict.REJECTED, "path_violation")
+
         return self._terminal(task, attempt, evidence, handoff, task_dir, workspace)
 
-    def _up_to_dispatch(self, task: Task, attempt: int, workspace: Workspace, task_dir: Path):
+    def _up_to_dispatch(
+        self,
+        task: Task,
+        attempt: int,
+        workspace: Workspace,
+        task_dir: Path,
+        resume: ResumePoint,
+    ):
         """프롬프트 → precheck → baseline → agent. 중간에 멈추면 그 사유를 돌려준다."""
         prompt_path, manifest_ref = self._write_prompt(task, task_dir, workspace)
-        base = self._head(workspace.path)
-        self.store.append(
-            EventType.TASK_DISPATCHED,
-            {
-                "context_manifest_ref": manifest_ref,
-                "prompt_ref": str(prompt_path),
-                # risk 모듈이 없으면 선언값을 그대로 쓴다 (docs/02 의 옵션 경계)
-                "effective_risk": str(task.risk) if task.risk else None,
-                # diff 관측의 기준 (docs/06). 재개는 journal 에서 이 값을 복원한다.
-                "base": base,
-            },
-            task_id=task.id,
-            attempt=attempt,
-        )
+        if resume.from_implementation:
+            # 이 attempt 는 이미 디스패치됐다. 관측 기준은 그때의 것을 그대로 쓴다 (docs/10).
+            base = self._base_from_journal(task, attempt)
+        else:
+            base = self._head(workspace.path)
+            self.store.append(
+                EventType.TASK_DISPATCHED,
+                {
+                    "context_manifest_ref": manifest_ref,
+                    "prompt_ref": str(prompt_path),
+                    # risk 모듈이 없으면 선언값을 그대로 쓴다 (docs/02 의 옵션 경계)
+                    "effective_risk": str(task.risk) if task.risk else None,
+                    # diff 관측의 기준 (docs/06). 재개는 journal 에서 이 값을 복원한다.
+                    "base": base,
+                },
+                task_id=task.id,
+                attempt=attempt,
+            )
 
         empty = verify_module.DiffObservation((), (), {})
         nothing = (None, None)  # 아직 agent 가 아무것도 내놓지 않았다
@@ -419,6 +521,15 @@ class Runner:
         if stop:
             return empty, None, nothing, base, stop
 
+        prompt = prompt_path.read_text(encoding="utf-8")
+        stage = self._tdd(task)
+        if stage is not None:
+            # TDD 는 단계를 나눠 디스패치하고 그 사이에 게이트를 둔다 (docs/06).
+            phased = stage.run(
+                self, task, attempt, workspace, task_dir, base, prompt, resume
+            )
+            return phased.before, phased.baseline, phased.outbox, base, phased.stop
+
         baseline, stop = self._baseline(task, attempt, workspace.path)
         if stop:
             return empty, baseline, nothing, base, stop
@@ -426,12 +537,25 @@ class Runner:
         before = verify_module.observe_diff(
             workspace.path, self._harness_paths(workspace.path), base=base
         )
-        result = self._dispatch(task, attempt, workspace, prompt_path.read_text(encoding="utf-8"))
+        result = self._dispatch(task, attempt, workspace, prompt)
         outbox = (result.raw_claim_path, result.raw_handoff_path)
         if result.runtime_failure is not None:
             failure = AttemptOutcome(Verdict.ERROR, str(result.runtime_failure))
             return before, baseline, outbox, base, failure
         return before, baseline, outbox, base, None
+
+    def _tdd(self, task: Task) -> Any:
+        """TDD 모드 task 에만 스테이지를 준다. 모드인데 없으면 `_attempt` 가 fail-closed 다."""
+        if task.development.mode is not DevelopmentMode.TDD:
+            return None
+        return self.tdd_stage
+
+    def _tdd_violations(self, task: Task, attempt: int, workspace: Workspace):
+        """docs/06 의 단계 스코프 위반. 리뷰의 fixer 가 만든 변경도 같은 기준을 받는다."""
+        stage = self._tdd(task)
+        if stage is None:
+            return ()
+        return stage.phase_violations(self, task, attempt, workspace)
 
     @staticmethod
     def _head(cwd: Path) -> str | None:
@@ -486,7 +610,9 @@ class Runner:
         if not task.preconditions and hint is None:
             return outcome  # 재실행할 probe 가 없다
 
-        results = check_all(task.preconditions, self.policy, self.repo, self.config.ac_timeout_s)
+        results = check_all(
+            task.preconditions, self.policy, self.repo, self.config.ac_timeout_s
+        )
         for result in results:
             if result.decision is not None:
                 self.store.append(
@@ -495,7 +621,9 @@ class Runner:
                     task.id,
                     attempt,
                 )
-            self.store.append(EventType.PRECONDITION_CHECKED, result.to_payload(), task.id, attempt)
+            self.store.append(
+                EventType.PRECONDITION_CHECKED, result.to_payload(), task.id, attempt
+            )
         failed = [result for result in results if not result.ok]
         if failed:
             return AttemptOutcome(Verdict.BLOCKED, f"prerequisite: {failed[0].name}")
@@ -503,7 +631,11 @@ class Runner:
         if hint is not None:
             self.store.append(
                 EventType.CLAIM_UNCORROBORATED,
-                {"hint": hint, "probe": [result.name for result in results], "probe_result": "pass"},
+                {
+                    "hint": hint,
+                    "probe": [result.name for result in results],
+                    "probe_result": "pass",
+                },
                 task.id,
                 attempt,
             )
@@ -524,7 +656,9 @@ class Runner:
         """docs/05 — effective_forbidden = task.forbidden_paths ∪ config.forbidden_paths."""
         return (*self.config.forbidden_paths, *task.forbidden_paths)
 
-    def _baseline_from_journal(self, task: Task, attempt: int) -> verify_module.Baseline | None:
+    def _baseline_from_journal(
+        self, task: Task, attempt: int
+    ) -> verify_module.Baseline | None:
         """docs/10 — 죽은 attempt 의 baseline 은 journal 이 갖고 있다.
 
         복원되면 agent 를 다시 부르지 않고 검증부터 재개한다. 하나라도 모자라면 복원하지
@@ -537,21 +671,56 @@ class Runner:
             and event.task_id == task.id
             and event.attempt == attempt
         ]
+        # 새 journal 은 criterion_index 를 기록한다. 같은 attempt 를 여러 번 재개해 같은
+        # AC 관측이 중복돼도 각 index 의 최신 완전한 집합을 안전하게 복원할 수 있다.
+        indexed = {
+            payload["criterion_index"]: payload
+            for payload in payloads
+            if _valid_criterion_index(payload, task)
+        }
+        if len(indexed) == len(task.acceptance):
+            return verify_module.Baseline(
+                tuple(
+                    verify_module.AcObservation.from_payload(indexed[index])
+                    for index in range(len(task.acceptance))
+                )
+            )
+
+        # 기존 journal 에는 index 가 없다. 명령과 expect_fail_before 를 키로 삼되 각
+        # occurrence 를 큐로 보존해 TDD 의 "non-red 먼저, red 나중" 기록 순서를 task
+        # 선언 순서로 되돌린다.
         if len(payloads) != len(task.acceptance):
             return None
-        return verify_module.Baseline(
-            tuple(verify_module.AcObservation.from_payload(payload) for payload in payloads)
+        grouped: dict[tuple[tuple[str, ...], bool], deque[Mapping[str, Any]]] = (
+            defaultdict(deque)
         )
+        for payload in payloads:
+            grouped[_baseline_key(payload)].append(payload)
+
+        ordered = []
+        for criterion in task.acceptance:
+            matches = grouped[(tuple(criterion.cmd), criterion.expect_fail_before)]
+            if not matches:
+                return None
+            ordered.append(verify_module.AcObservation.from_payload(matches.popleft()))
+        if any(grouped.values()):
+            return None
+        return verify_module.Baseline(tuple(ordered))
 
     # ----------------------------------------------------------------- 단계
 
     def _precheck(self, task: Task, attempt: int) -> AttemptOutcome | None:
         """docs/06 — preconditions 와 어댑터 preflight 를 하네스가 직접 실행한다."""
-        results = check_all(task.preconditions, self.policy, self.repo, self.config.ac_timeout_s)
+        results = check_all(
+            task.preconditions, self.policy, self.repo, self.config.ac_timeout_s
+        )
         for result in results:
             if result.decision is not None:
                 self.store.append(
-                    EventType.COMMAND_POLICY_DECISION, result.decision.to_payload(), task.id, attempt
+                    EventType.COMMAND_POLICY_DECISION,
+                    result.decision.to_payload(),
+                    task.id,
+                    attempt,
                 )
             self.store.append(
                 EventType.PRECONDITION_CHECKED, result.to_payload(), task.id, attempt
@@ -568,11 +737,13 @@ class Runner:
         if self._profile(task) is ExecutionProfile.CONTAINER:
             if container is None:
                 return AttemptOutcome(
-                    Verdict.ERROR, "container 프로파일인데 config 에 container 블록이 없다"
+                    Verdict.ERROR,
+                    "container 프로파일인데 config 에 container 블록이 없다",
                 )
             if shutil.which(container.runtime) is None:
                 return AttemptOutcome(
-                    Verdict.BLOCKED, f"container runtime: {container.runtime} 을(를) 찾을 수 없다"
+                    Verdict.BLOCKED,
+                    f"container runtime: {container.runtime} 을(를) 찾을 수 없다",
                 )
 
         report = self._adapter_for(task).preflight()
@@ -601,7 +772,10 @@ class Runner:
         )
         for differential in differentials:
             self.store.append(
-                EventType.AC_POST_EXECUTED, differential.post_payload(), task.id, attempt
+                EventType.AC_POST_EXECUTED,
+                differential.post_payload(),
+                task.id,
+                attempt,
             )
             if differential.outcome == "debt_closed":
                 self.store.append(
@@ -612,24 +786,34 @@ class Runner:
                 )
         return differentials
 
-    def _baseline(self, task: Task, attempt: int, cwd: Path):
+    def _baseline(self, task: Task, attempt: int, cwd: Path, criteria=None):
+        """`criteria` 는 실행할 AC 를 좁힌다 — TDD 의 단계 분할이 쓴다 (docs/06)."""
+        selected = tuple(task.acceptance if criteria is None else criteria)
         baseline = verify_module.run_baseline(
-            task, self.policy, cwd, self.config.ac_timeout_s
+            task, self.policy, cwd, self.config.ac_timeout_s, selected
         )
-        for observed in baseline.observations:
+        indexes = _criterion_indexes(task.acceptance, selected)
+        for criterion_index, observed in zip(indexes, baseline.observations):
             self.store.append(
-                EventType.COMMAND_POLICY_DECISION, observed.decision.to_payload(), task.id, attempt
+                EventType.COMMAND_POLICY_DECISION,
+                observed.decision.to_payload(),
+                task.id,
+                attempt,
             )
-            self.store.append(
-                EventType.AC_BASELINE_EXECUTED, observed.baseline_payload(), task.id, attempt
-            )
+            payload = observed.baseline_payload()
+            payload["criterion_index"] = criterion_index
+            self.store.append(EventType.AC_BASELINE_EXECUTED, payload, task.id, attempt)
 
         if any(_denied(observed.decision) for observed in baseline.observations):
             # analyze 가 사전에 잡았어야 한다. 런타임 도달은 task 정의 결함이다.
-            return baseline, AttemptOutcome(None, "policy_denied_at_runtime", State.NEEDS_REPLAN)
+            return baseline, AttemptOutcome(
+                None, "policy_denied_at_runtime", State.NEEDS_REPLAN
+            )
 
         if baseline.not_discriminating:
-            return baseline, AttemptOutcome(None, "ac_not_discriminating", State.NEEDS_REPLAN)
+            return baseline, AttemptOutcome(
+                None, "ac_not_discriminating", State.NEEDS_REPLAN
+            )
 
         for observed in baseline.pre_existing:
             self.store.append(
@@ -670,9 +854,19 @@ class Runner:
             attempt=attempt,
         )
 
+        # Hard cap 은 모든 호출 경로의 실제 agent 시작 직전에 확인한다. attempt 시작의
+        # 선행 검사는 빠른 종료용일 뿐이며, 다단계 실행 사이의 소비량도 여기서 잡는다.
+        spent = self._over_budget()
+        if spent:
+            raise _BudgetExhausted(spent)
+
         self.store.append(
             EventType.AGENT_STARTED,
-            {"adapter": adapter.name, "workspace": str(workspace.path), "outbox": str(outbox)},
+            {
+                "adapter": adapter.name,
+                "workspace": str(workspace.path),
+                "outbox": str(outbox),
+            },
             task.id,
             attempt,
         )
@@ -686,7 +880,9 @@ class Runner:
                 "exit_code": result.exit_code,
                 "duration_s": result.duration_s,
                 "usage": _usage(result),
-                "runtime_failure": str(result.runtime_failure) if result.runtime_failure else None,
+                "runtime_failure": str(result.runtime_failure)
+                if result.runtime_failure
+                else None,
                 "transcript_ref": str(transcript),
             },
             task.id,
@@ -696,7 +892,10 @@ class Runner:
             # 증거 하나일 뿐이다. 판정을 오염시키지 않는다 (docs/06).
             self.store.append(
                 EventType.AGENT_EXIT_NONZERO,
-                {"exit_code": result.exit_code, "stderr_tail": result.stderr[-STDERR_TAIL_CHARS:]},
+                {
+                    "exit_code": result.exit_code,
+                    "stderr_tail": result.stderr[-STDERR_TAIL_CHARS:],
+                },
                 task.id,
                 attempt,
             )
@@ -720,7 +919,9 @@ class Runner:
         repairs = 0
 
         while not gate.ok:
-            self.store.append(EventType.HANDOFF_MISSING, gate.missing_payload(), task.id, attempt)
+            self.store.append(
+                EventType.HANDOFF_MISSING, gate.missing_payload(), task.id, attempt
+            )
             if repairs >= self.config.max_handoff_repairs:
                 self._write_verification(task_dir, task, evidence, handoff)
                 return AttemptOutcome(None, "handoff_missing", State.HUMAN_REQUIRED)
@@ -731,7 +932,10 @@ class Runner:
                 self._write_verification(task_dir, task, evidence, handoff)
                 return AttemptOutcome(Verdict.BUDGET_EXHAUSTED, spent)
             self.store.append(
-                EventType.FIXER_DISPATCHED, {"wave": repairs, "scope": "handoff"}, task.id, attempt
+                EventType.FIXER_DISPATCHED,
+                {"wave": repairs, "scope": "handoff"},
+                task.id,
+                attempt,
             )
             result = self._dispatch(
                 task, attempt, workspace, _repair_prompt(task, gate), repair=repairs
@@ -745,7 +949,9 @@ class Runner:
         merge = self.workspaces.integrate(workspace)
         self._write_verification(task_dir, task, evidence, handoff, merge)
         if not merge.ok:
-            return AttemptOutcome(None, "integration_conflict", State.INTEGRATION_CONFLICT)
+            return AttemptOutcome(
+                None, "integration_conflict", State.INTEGRATION_CONFLICT
+            )
         return AttemptOutcome(Verdict.VERIFIED)
 
     # ----------------------------------------------------------------- 기록
@@ -782,7 +988,9 @@ class Runner:
     ) -> None:
         record = {
             "task_id": task.id,
-            "output": handoff_module.merge_output(task, evidence.diff.to_output(), handoff),
+            "output": handoff_module.merge_output(
+                task, evidence.diff.to_output(), handoff
+            ),
             "differentials": [d.post_payload() for d in evidence.differentials],
         }
         if merge is not None:
@@ -816,7 +1024,10 @@ class Runner:
             path.write_text(built.prompt, encoding="utf-8")
             return path, str(manifest_path)
 
-        sections = [_read(self.repo / HARNESS_DIR / "constitution.md"), _task_card(task)]
+        sections = [
+            _read(self.repo / HARNESS_DIR / "constitution.md"),
+            _task_card(task),
+        ]
         for relative in task.context.get("files") or ():
             body = _read(workspace.path / relative)
             if body:
@@ -837,7 +1048,9 @@ class Runner:
             entry = self.config.adapters[name]
             # 워커 스레드가 겹치면 setdefault 가 먼저 넣은 쪽을 이긴다. 두 번 만드는 것은
             # 낭비일 뿐 오류가 아니다.
-            adapter = self._adapters.setdefault(name, build_adapter(name, entry.type, entry.options))
+            adapter = self._adapters.setdefault(
+                name, build_adapter(name, entry.type, entry.options)
+            )
         return adapter
 
     def _env(self, task: Task, outbox: Path, attempt: int) -> dict[str, str]:
@@ -866,7 +1079,9 @@ def _run_dir(repo: Path, run_id: str | None, resume: bool = False) -> Path:
     return candidate
 
 
-def write_transcript(task_dir: Path, label: str, adapter_name: str, result: AgentResult) -> Path:
+def write_transcript(
+    task_dir: Path, label: str, adapter_name: str, result: AgentResult
+) -> Path:
     """agent 의 stdout/stderr 를 dispatch 단위로 남긴다 (docs/03 의 파일 배치).
 
     `label` 은 그 dispatch 의 outbox 디렉토리 이름이다 — 한 task 가 여러 번 dispatch
@@ -901,6 +1116,42 @@ def _outbox_artifacts(outbox: Path) -> tuple[Path | None, Path | None]:
     """docs/04 의 outbox 규약 — 파일 이름이 고정이므로 재개할 때 어댑터 없이 찾을 수 있다."""
     claim, handoff = outbox / "result.json", outbox / "handoff.json"
     return (claim if claim.is_file() else None, handoff if handoff.is_file() else None)
+
+
+def _criterion_indexes(
+    all_criteria: Sequence[Any], selected: Sequence[Any]
+) -> tuple[int, ...]:
+    """부분 baseline 의 각 관측을 task acceptance 의 occurrence index 에 대응시킨다."""
+    remaining = list(enumerate(all_criteria))
+    indexes = []
+    for criterion in selected:
+        for position, (index, candidate) in enumerate(remaining):
+            if candidate == criterion:
+                indexes.append(index)
+                remaining.pop(position)
+                break
+        else:  # pragma: no cover - 내부 호출자가 task 밖의 criterion 을 넘긴 프로그래밍 오류
+            raise ValueError("baseline criterion 이 task.acceptance 에 없다")
+    return tuple(indexes)
+
+
+def _baseline_key(payload: Mapping[str, Any]) -> tuple[tuple[str, ...], bool]:
+    return tuple(payload["cmd"]), bool(payload["expect_fail_before"])
+
+
+def _valid_criterion_index(payload: Mapping[str, Any], task: Task) -> bool:
+    index = payload.get("criterion_index")
+    if (
+        not isinstance(index, int)
+        or isinstance(index, bool)
+        or not 0 <= index < len(task.acceptance)
+    ):
+        return False
+    criterion = task.acceptance[index]
+    return _baseline_key(payload) == (
+        tuple(criterion.cmd),
+        criterion.expect_fail_before,
+    )
 
 
 def _denied(decision) -> bool:

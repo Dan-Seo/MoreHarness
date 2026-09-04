@@ -119,6 +119,71 @@ argv 리스트를 그대로 `subprocess.run(argv, shell=False)`에 넘긴다. �
 
 ---
 
+## TDD 모드 — red→green 을 하네스가 관측한다
+
+`development.mode: tdd`(03)인 task는 한 attempt 안에서 **두 번 디스패치**된다. agent가 "TDD로 했다"고 말하는 것은 증거가 아니므로, 하네스가 단계 사이에 직접 관측한다.
+
+```
+[1] baseline        expect_fail_before 가 아닌 AC 만 실행한다
+[2] test-author     첫 디스패치 — 테스트만 쓴다
+[3] red gate        expect_fail_before AC 의 baseline 을 여기서 잰다. 전부 red 여야 한다
+[4] implementation  둘째 디스패치 — 구현만 한다
+[5] post            모든 AC 를 다시 실행한다 (위 차등 판정 그대로)
+```
+
+**`expect_fail_before` AC의 baseline은 [3]에서 잰다.** 테스트가 없는 시점의 red는 아무것도 증명하지 못한다. 테스트가 존재하고 실패한다는 관측만이 red→green의 before다. baseline이 두 조각으로 나뉘지만 합집합은 여전히 AC 하나당 관측 하나이므로, 차등 판정도 재개(10)도 표준 모드와 같은 절차다.
+
+**red gate를 통과하지 못하면 implementation을 디스패치하지 않는다.**
+
+### 단계 스코프
+
+각 단계의 diff는 그 단계의 관측 기준에 대해 계산되고 05의 경로 스코프 판정을 그대로 받는다.
+
+| 단계 | 관측 기준 | `allowed` | `effective_forbidden` 에 더해지는 것 |
+|---|---|---|---|
+| test-author | dispatch 시점 HEAD (`task_dispatched` 의 `base`) | `test_paths` | `implementation_paths` |
+| implementation | red gate 커밋 (`tdd_phase_completed` 의 `base`) | `implementation_paths` | `test_paths` |
+
+- 두 목록이 겹치게 선언되어도 각 단계에서 **상대 목록이 금지**이므로 구멍이 생기지 않는다.
+- test-author 단계가 끝나면 하네스가 그 변경을 task 브랜치에 커밋하고 그 sha를 다음 단계의 관측 기준으로 남긴다. 이후 관측이 이 sha 대비이므로 **agent가 커밋으로 변경을 감춰도 같은 diff로 관측된다.** 테스트의 수정·삭제가 implementation 단계의 `path_violation`이 되는 것이 여기서 나온다.
+- attempt 전체의 diff 판정(`kind` 기대·`allowed_paths`·리뷰 티어)은 두 단계의 합에 대해 그대로 한다. **TDD는 증거를 더할 뿐 기존 판정을 대체하지 않는다.** fixer가 만든 변경도 같은 단계 스코프를 다시 통과해야 한다.
+
+### 게이트 실패
+
+| 상황 | reason | verdict | next_state |
+|---|---|---|---|
+| test-author 가 스코프를 벗어났다 (구현 경로 포함) | `path_violation` | `rejected` | 시도 규칙대로 |
+| test-author 가 아무것도 쓰지 않았다 | `tdd_no_tests` | `rejected` | 시도 규칙대로 |
+| red gate 에서 AC 가 green | `ac_not_discriminating` | — | `needs_replan` |
+| `expect_fail_before` AC 가 하나도 없다 | `ac_not_discriminating` | — | `needs_replan` |
+| red gate 의 AC 가 `deny` | `policy_denied_at_runtime` | — | `needs_replan` |
+| red gate 의 AC 가 미승인이라 실행되지 않았다 | `unapproved_command` | `blocked` | `human_required` |
+| red gate 의 AC 가 실행되지 못했다 (타임아웃·프로세스 실패) | `tdd_red_gate_unexecuted` | `error` | 시도 규칙대로 |
+| implementation 이 테스트를 고쳤다·지웠다, 또는 스코프를 벗어났다 | `path_violation` | `rejected` | 시도 규칙대로 |
+| implementation 뒤에도 red | `unmet` | `rejected` | 시도 규칙대로 |
+| 기존 green AC 가 red 가 됐다 | `regression` | `rejected` | 시도 규칙대로 |
+| test-author 변경을 red 기준 커밋으로 고정하지 못했다 | `tdd_checkpoint_failed` | `error` | 시도 규칙대로 |
+| 워크트리 분리가 없는 프로파일 (`safe`) | `tdd_requires_worktree` | `error` | 시도 규칙대로 |
+| TDD 모드인데 그 단계를 실행할 옵션이 설치본에 없다 | `tdd_mode_unavailable` | `error` | 시도 규칙대로 |
+
+`ac_not_discriminating`을 그대로 쓰는 것은 의미가 같기 때문이다 — 테스트가 존재하는데도 통과하는 AC는 무엇을 바꾸든 통과하므로 검증력이 없다. 새 state를 만들 이유가 없다.
+
+`tdd_requires_worktree`와 `tdd_mode_unavailable`이 `error`인 것은 10의 경계를 따른다. 사람이 환경을 준비해서 풀리는 문제가 아니라 task 선언과 설치본의 조합이 성립하지 않는 설정 결함이다.
+
+### 증거의 소재
+
+| 질문 | journal |
+|---|---|
+| test-author 단계가 끝났는가 | `tdd_phase_completed {phase: test_author, base}` |
+| red gate 를 통과했는가 | `tdd_phase_completed {phase: red_gate, ok}` |
+| 무엇이 red 증거였는가 | 그 사이의 `ac_baseline_executed {classification: red_before}` |
+| implementation 을 실행했는가 | `agent_finished` 뒤의 `tdd_phase_completed {phase: implementation, ok: true}` |
+| green gate 결과는 무엇인가 | `ac_post_executed {differential: proven \| unmet}` |
+
+green gate를 위한 이벤트는 따로 두지 않는다. 차등 판정의 결과가 곧 green gate이며, 지표는 journal의 projection이지 별도 계측이 아니다 (03).
+
+---
+
 ## 정규화 — 판정 이전 단계
 
 ```
@@ -349,7 +414,8 @@ budget:
   max_cost_usd: null          # usage 를 보고하는 어댑터에서만 유효. 추정하지 않는다 (11)
 ```
 
-- 확인 지점은 **agent를 부르기 직전**이다 — attempt 시작, 리뷰어 실행, fixer 호출.
+- 확인 지점은 **모든 agent 프로세스를 부르기 직전**이다 — TDD의 두 디스패치, 리뷰어,
+  fixer, handoff repair도 각각 별도로 확인한다.
 - 확인할 때마다 `budget_checkpoint` 이벤트가 남는다. 소비량은 전부 journal의 projection이다 — 별도 카운터가 없다.
 - 상한이 하나도 설정되지 않았으면 확인하지 않고 이벤트도 남기지 않는다.
 
