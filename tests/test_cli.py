@@ -5,8 +5,10 @@ docs/00, docs/10, docs/12.
 
 import json
 import pkgutil
+import re
 from pathlib import Path
 
+import pytest
 import yaml
 
 import harness
@@ -22,10 +24,36 @@ RUN_ID = "run-20260827-1432"
 
 
 def yaml_block(document: str, heading: str) -> dict:
-    """문서의 특정 절 아래 첫 yaml 펜스를 계약으로 읽는다."""
+    """문서의 그 절 안에 있는 첫 yaml 펜스를 계약으로 읽는다.
+
+    절을 못 찾은 것은 계약이 틀린 것이 아니라 읽지 못한 것이다. 문서를 옮긴 쪽이
+    무엇을 맞춰야 하는지 알 수 있게, 그리고 다음 절의 펜스를 대신 읽고 엉뚱한
+    계약과 비교하는 일이 없게 절 경계에서 끊는다.
+    """
     doc = (Path(__file__).resolve().parents[1] / "docs" / document).read_text(encoding="utf-8")
-    section = doc.split(heading, 1)[1]
+    assert heading in doc, f"{document} 에 {heading!r} 절이 없다 — 문서를 옮겼으면 여기도 맞춘다"
+    section = re.split(r"\n#{1,6} ", doc.split(heading, 1)[1], maxsplit=1)[0]
+    assert "```yaml" in section, f"{document} 의 {heading!r} 절에 yaml 펜스가 없다"
     return yaml.safe_load(section.split("```yaml", 1)[1].split("```", 1)[0])
+
+
+def test_yaml_block_names_the_section_it_could_not_find():
+    """문서를 옮기면 계약을 못 읽는다 — 그때 무엇이 없어졌는지 말해야 한다.
+
+    docs 를 영문으로 옮기며 `### 설정` 이 `### Configuration` 이 되었을 때 이
+    헬퍼는 IndexError 로 죽었고, 문서를 고친 쪽은 원인을 알 수 없었다.
+    """
+    with pytest.raises(AssertionError) as missing:
+        yaml_block("06-VERIFICATION-REVIEW.md", "### 옮겨진 절")
+    assert "06-VERIFICATION-REVIEW.md" in str(missing.value)
+    assert "옮겨진 절" in str(missing.value)
+
+
+def test_yaml_block_does_not_borrow_the_next_sections_fence():
+    """절에 yaml 펜스가 없으면 다음 절의 것을 읽어 엉뚱한 계약과 비교하게 된다."""
+    with pytest.raises(AssertionError) as borrowed:
+        yaml_block("06-VERIFICATION-REVIEW.md", "### Adjudication Order")
+    assert "Adjudication Order" in str(borrowed.value)
 
 
 def check_ignore(repo: Path, relative: str) -> bool:
