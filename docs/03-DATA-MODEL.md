@@ -1,6 +1,6 @@
-# 03 · 데이터 모델
+# 03 · Data Model
 
-이 문서는 **verdict와 state의 canonical 정의**, 그리고 **이벤트 목록의 canonical 정의**를 갖는다.
+This document holds the **canonical definition of verdict and state**, and the **canonical definition of the event list**.
 
 ---
 
@@ -9,25 +9,25 @@
 ```yaml
 # specs/<slug>/spec.yaml
 slug: user-api
-intent: "사용자 CRUD API 를 만든다"
+intent: "Build a user CRUD API"
 requirements:
   - id: R-001
-    statement: "POST /api/users 로 사용자를 생성할 수 있다"
-    rationale: "가입 플로우의 전제"
-    acceptance_hint: "생성 후 201 과 id 를 반환"
+    statement: "A user can be created with POST /api/users"
+    rationale: "A premise of the sign-up flow"
+    acceptance_hint: "Returns 201 and an id after creation"
   - id: R-002
-    statement: "이메일 중복은 409 로 거절한다"
+    statement: "A duplicate email is rejected with 409"
 open_questions:
-  - "[NEEDS CLARIFICATION] 소프트 삭제인가 하드 삭제인가"
+  - "[NEEDS CLARIFICATION] soft delete or hard delete"
 ```
 
-`R-###`는 스펙 안에서 유일하고 재사용되지 않는다. 요구사항이 삭제되면 번호는 결번으로 남는다. 번호를 재사용하면 과거 run의 커버리지 기록이 거짓이 된다.
+`R-###` is unique within the spec and is not reused. When a requirement is deleted the number is left as a gap. Reusing a number makes past runs' coverage records false.
 
-`open_questions`에 `[NEEDS CLARIFICATION]`이 하나라도 남아 있으면 `analyze`가 `run`을 막는다.
+If even one `[NEEDS CLARIFICATION]` remains in `open_questions`, `analyze` blocks the `run`.
 
 ---
 
-## Task 계약
+## Task contract
 
 ```yaml
 # tasks/T-003.task.yaml
@@ -36,16 +36,16 @@ name: api-layer
 kind: implementation          # implementation | analysis | readonly
 satisfies: [R-002, R-005]
 depends_on: [T-001]
-risk: medium                  # trivial | low | medium | high | critical (선언값)
+risk: medium                  # trivial | low | medium | high | critical (the declared value)
 agent: default
 profile: worktree             # safe | worktree | container | unsafe
 
 allowed_paths:   ["src/api/**", "tests/api/**"]
-forbidden_paths: []           # config 의 전역 금지 목록과 합집합으로 적용된다
+forbidden_paths: []           # applied as the union with the global forbidden list in config
 
 preconditions:
-  - {kind: env_var, name: DATABASE_URL}       # 존재 여부만 검사. 값은 기록하지 않는다.
-  - {kind: command, cmd: ["docker", "info"]}  # Command Policy 적용 대상
+  - {kind: env_var, name: DATABASE_URL}       # checks only for presence. The value is never recorded.
+  - {kind: command, cmd: ["docker", "info"]}  # subject to Command Policy
   - {kind: file, path: ".env.local"}
 
 context:
@@ -53,57 +53,57 @@ context:
   files:   ["src/types/user.ts"]
   symbols: ["UserRepository"]
 
-acceptance:                   # 하네스가 직접 실행한다. Command Policy 적용 대상.
+acceptance:                   # the harness runs these itself. Subject to Command Policy.
   - cmd: ["npm", "run", "build"]
   - cmd: ["npm", "test", "--", "tests/api"]
     expect_fail_before: true
 
 outputs:
-  required: [public_api]      # 다음 task 실행에 반드시 필요한 agent 산출 필드
+  required: [public_api]      # agent-produced fields the next task's execution requires
   optional: [decisions]
 
-spec_hash: "sha256:..."       # 참조한 spec 의 해시. 드리프트 검출용.
+spec_hash: "sha256:..."       # hash of the referenced spec. For drift detection.
 ```
 
-### `cmd`는 argv 리스트다
+### `cmd` is an argv list
 
-문자열이 아니라 리스트다. 기본 실행이 `shell=False`이므로 셸 메타문자, 명령 치환, 파이프, 리다이렉션이 해석되지 않는다. 셸이 반드시 필요하면 `shell: true`를 명시해야 하고, 그 선언 자체가 Command Policy에서 자동으로 `require_approval`로 승격된다. 06 참조.
+A list, not a string. Because execution defaults to `shell=False`, shell metacharacters, command substitution, pipes, and redirection are not interpreted. If a shell is truly required, `shell: true` must be declared explicitly, and the declaration itself is automatically promoted to `require_approval` by Command Policy. See 06.
 
 ### `spec_hash`
 
-`satisfies`의 R-###를 담은 spec 파일 **바이트의 sha256**이며 `sha256:` 접두사를 붙인다. `harness tasks`가 찍고, analyze와 converge가 현재 spec과 대조해 드리프트를 잡는다 (08).
+It is the **sha256 of the bytes** of the spec file that holds the R-### in `satisfies`, prefixed with `sha256:`. `harness tasks` stamps it, and analyze and converge catch drift by comparing it against the current spec (08).
 
-### `kind`가 결정하는 것
+### What `kind` determines
 
-| `kind` | diff 기대 | 용도 |
+| `kind` | diff expectation | Use |
 |---|---|---|
-| `implementation` | 비어 있지 않아야 한다 | 코드 변경 |
-| `readonly` | 비어 있어야 한다 | 조사·확인 |
-| `analysis` | 무관 | 산출물이 handoff 뿐인 작업 |
+| `implementation` | must not be empty | Code changes |
+| `readonly` | must be empty | Investigation and checking |
+| `analysis` | not constrained | Work whose only output is a handoff |
 
 ---
 
-## Task Output — 출처와 필요도
+## Task Output — provenance and necessity
 
-`outputs`를 이해하는 축은 **누가 만드는가(provenance)** 와 **없으면 곤란한가(필요도)** 둘이다.
+There are two axes for understanding `outputs`: **who produces it (provenance)** and **whether its absence is a problem (necessity)**.
 
-| 필드 | 산출 주체 | 성질 |
+| Field | Producer | Nature |
 |---|---|---|
-| `changed_files`, `created_files`, `diff_stat` | **하네스** (git diff 에서 계산) | 항상 존재한다. agent 협조가 필요 없다. **`required`에 적을 수 없다.** |
-| `public_api`, `decisions`, 그 밖의 의미 요약 | **agent** (handoff artifact) | `required` 또는 `optional` |
+| `changed_files`, `created_files`, `diff_stat` | **the harness** (computed from git diff) | Always present. No agent cooperation is needed. **They cannot be listed in `required`.** |
+| `public_api`, `decisions`, and other semantic summaries | **the agent** (handoff artifact) | `required` or `optional` |
 
-- `outputs.required`가 비어 있으면 — 대부분의 task가 그렇다 — handoff의 유무는 판정에 아무 영향이 없다.
-- 하네스가 계산하는 값은 누락될 수 없으므로 `required` 대상이 아니다. `required`에 하네스 산출 필드를 적는 실수는 `analyze`가 사전에 잡는다.
-- 최종 `TaskOutput` 레코드는 **하네스 산출 필드 + 검증을 통과한 handoff 필드**의 병합이며, 병합과 기록은 하네스가 한다.
-- 병합 결과 안에서도 **하네스 산출 필드(fact)와 agent 산출 필드(untrusted)의 출처를 구분해 표기한다.** 07 참조.
+- If `outputs.required` is empty — as it is for most tasks — the presence or absence of a handoff has no effect on adjudication.
+- A value the harness computes cannot be missing, so it is not subject to `required`. The mistake of listing a harness-produced field in `required` is caught by `analyze` in advance.
+- The final `TaskOutput` record is the merge of **harness-produced fields + handoff fields that passed validation**, and the harness does the merging and the recording.
+- Even inside the merged result, **the provenance of harness-produced fields (fact) and agent-produced fields (untrusted) is marked distinctly.** See 07.
 
 ---
 
-## Claim과 Handoff는 별개 파일이다
+## Claim and handoff are separate files
 
-둘은 outbox의 서로 다른 파일이다. 하나가 깨져도 다른 하나는 살아남는다. 서사와 데이터는 소비자도 수명도 다르기 때문이다.
+They are different files in the outbox. If one is broken the other survives. That is because narrative and data have different consumers and different lifetimes.
 
-### Claim envelope — optional, 힌트
+### Claim envelope — optional, a hint
 
 ```json
 {
@@ -111,143 +111,143 @@ spec_hash: "sha256:..."       # 참조한 spec 의 해시. 드리프트 검출�
   "task_id": "T-003",
   "outcome_claim": "implemented",
   "commands_run": [{"cmd": "npm test", "exit_code": 0}],
-  "blocked_hint": "DATABASE_URL 이 없어 보임"
+  "blocked_hint": "DATABASE_URL appears to be missing"
 }
 ```
 
-`outcome_claim`은 `implemented | blocked | infeasible`.
+`outcome_claim` is `implemented | blocked | infeasible`.
 
-필드 이름이 `blocked_reason`이 아니라 **`blocked_hint`** 인 것은 의도적이다. 이것은 결론이 아니라 하네스가 확인해 볼 가설이며, 하네스가 probe로 뒷받침하지 못하면 인정되지 않는다. 06 참조.
+That the field is named **`blocked_hint`** and not `blocked_reason` is deliberate. It is not a conclusion but a hypothesis for the harness to check, and if the harness cannot corroborate it with a probe, it is not accepted. See 06.
 
-### Handoff artifact — 계약
+### Handoff artifact — the contract
 
 ```json
 {
   "schema": "harness.handoff/v1",
   "task_id": "T-003",
   "public_api": ["POST /api/users", "GET /api/users/:id"],
-  "decisions": ["인증은 미들웨어에서 처리하고 라우트 핸들러는 인증을 가정한다"]
+  "decisions": ["Authentication is handled in middleware and route handlers assume it"]
 }
 ```
 
-`schema` 필드가 없거나 jsonschema 검증에 실패하면 `*.invalid.json`으로 보존되고 이후 판정에서 `None`으로 취급된다. **보고가 깨진 것이 구현이 깨진 것을 의미하지는 않는다.**
+If the `schema` field is absent or jsonschema validation fails, it is preserved as `*.invalid.json` and treated as `None` in later adjudication. **A broken report does not mean a broken implementation.**
 
 ---
 
 ## Verdict — canonical
 
-verdict는 **정확히 다섯 개**다.
+There are **exactly five** verdicts.
 
-| verdict | 의미 |
+| verdict | Meaning |
 |---|---|
-| `verified` | 하네스 소유 증거가 전부 통과했고 required handoff 게이트도 통과했다 |
-| `rejected` | 증거가 목표 미달을 보인다 (회귀, red→green 미달, blocking finding 잔존) |
-| `blocked` | 시스템은 정상이나 외부 준비물이 없어 진행할 수 없다 |
-| `error` | 하네스·어댑터 결함이 의심되거나 실행이 유효하게 성립하지 않았다 |
-| `budget_exhausted` | 예산 소진 |
+| `verified` | All harness-owned evidence passed and the required handoff gate passed too |
+| `rejected` | The evidence shows it falls short of the goal (regression, red→green falls short, a blocking finding remains) |
+| `blocked` | The system is fine, but an external prerequisite is absent so it cannot proceed |
+| `error` | A harness or adapter defect is suspected, or the execution did not validly stand |
+| `budget_exhausted` | Budget exhausted |
 
-**`repairing`, `needs_replan`, `integration_conflict`, `human_required`는 verdict가 아니라 state다.**
+**`repairing`, `needs_replan`, `integration_conflict`, and `human_required` are not verdicts but states.**
 
 ---
 
 ## State — canonical
 
-state는 워크플로 위치를 나타내는 **별개의 축**이다.
+State is a **different axis**, marking the position in the workflow.
 
-| state | 의미 |
+| state | Meaning |
 |---|---|
-| `pending` | 의존이 아직 충족되지 않았다 |
-| `ready` | 디스패치 대기 |
-| `precheck` | `preconditions` + 어댑터 `preflight` 실행 중. agent 는 아직 실행되지 않았다 |
-| `running` | agent 프로세스 실행 중 |
-| `executed` | agent 프로세스 종료. **exit code 와 claim 유무에 무관하다** |
-| `verifying` | 정규화 + AC post + diff·경로 판정 중 |
-| `reviewing` | 리뷰 wave 진행 중 |
-| `repairing` | 구현 증거는 전부 통과했으나 required handoff 가 없거나 invalid 하다. **handoff artifact 만** 재생성한다 |
-| `needs_replan` | task 정의를 고쳐야 한다 |
-| `integration_conflict` | 머지 충돌 |
-| `human_required` | 사람 개입 없이는 진행 불가 |
-| `done` | 종료. verdict `verified` 로만 도달한다 |
+| `pending` | Dependencies are not yet satisfied |
+| `ready` | Waiting for dispatch |
+| `precheck` | `preconditions` + the adapter `preflight` are executing. The agent has not executed yet |
+| `running` | The agent process is executing |
+| `executed` | The agent process exited. **Regardless of the exit code and of the presence or absence of a claim** |
+| `verifying` | Normalization + AC post + diff and path adjudication are under way |
+| `reviewing` | A review wave is under way |
+| `repairing` | All implementation evidence passed, but the required handoff is absent or invalid. Regenerates **only the handoff artifact** |
+| `needs_replan` | The task definition has to be fixed |
+| `integration_conflict` | A merge conflict |
+| `human_required` | Cannot proceed without human intervention |
+| `done` | Finished. Reached only with verdict `verified` |
 
-`claimed` 상태는 존재하지 않는다. claim은 optional이므로 상태 기계가 claim을 기다릴 수 없다.
+There is no `claimed` state. claim is optional, so the state machine cannot wait for a claim.
 
-### 상태 전이
+### State transitions
 
 ```
-pending ─(의존 verified)─> ready ─> precheck ─> running ─> executed ─> verifying
-                                        │                                  │
-                            precheck 실패│                     리뷰 필요 시  ├─> reviewing ─┐
-                                        │                                  │              │
-                                        v                                  v              v
-                              blocked | error                        (handoff gate) <─────┘
-                                                                           │
-                                          required handoff 누락/invalid ────┤
-                                                                    │      │
-                                                                    v      v
-                                                              repairing   verdict = verified ─> done
+pending ─(dependency verified)─> ready ─> precheck ─> running ─> executed ─> verifying
+                                              │                                  │
+                                precheck fails│             if review is needed  ├─> reviewing ─┐
+                                              │                                  │              │
+                                              v                                  v              v
+                                       blocked | error                    (handoff gate) <──────┘
+                                                                                 │
+                                            required handoff missing/invalid ────┤
+                                                                          │      │
+                                                                          v      v
+                                                                  repairing  verdict = verified ─> done
 ```
 
-`precheck` 실패 시 agent를 실행하지 않고 verdict `blocked` 또는 `error`가 부여된다. 분류 기준은 10.
+When `precheck` fails the agent is not executed and verdict `blocked` or `error` is assigned. The classification criteria are in 10.
 
-`repairing`이 성공하면 verdict `verified` → `done`. 시도가 소진되면 `human_required`(reason: `handoff_missing`).
+If `repairing` succeeds, verdict `verified` → `done`. If attempts are exhausted, `human_required` (reason: `handoff_missing`).
 
-`blocked`는 해당 task와 그 하위 의존만 막는다. **런 전체를 중단하지 않는다.** 막히지 않은 가지는 계속 진행하고, run은 정상 종료하면서 무엇이 왜 막혔는지 요약한다. 10 참조.
+`blocked` blocks only that task and its downstream dependents. **It does not abort the entire run.** Branches of the DAG that are not blocked keep going, and the run terminates normally while summarizing what was blocked and why. See 10.
 
 ### verdict → next_state
 
-| verdict | 조건 | next_state |
+| verdict | Condition | next_state |
 |---|---|---|
 | `verified` | — | `done` |
-| `rejected` | 시도 남음 | `ready` |
-| `rejected` | 시도 소진 | `needs_replan` |
+| `rejected` | attempts remain | `ready` |
+| `rejected` | attempts exhausted | `needs_replan` |
 | `blocked` | — | `human_required` |
-| `error` | transient·재시도 여지 있음 | `ready` |
-| `error` | system defect·반복 | `human_required` |
+| `error` | transient · room to retry | `ready` |
+| `error` | system defect · repeated | `human_required` |
 | `budget_exhausted` | — | `human_required` |
 
-verdict 없이 state만 갖는 경우가 셋 있다.
+There are three cases that have only a state and no verdict.
 
-| 상황 | verdict | next_state |
+| Situation | verdict | next_state |
 |---|---|---|
-| required handoff 누락/invalid (구현 증거는 통과) | — | `repairing` |
-| 머지 충돌 | — | `integration_conflict` |
-| task 정의 결함 | — | `needs_replan` |
+| required handoff missing/invalid (the implementation evidence passed) | — | `repairing` |
+| A merge conflict | — | `integration_conflict` |
+| A task definition defect | — | `needs_replan` |
 
-**task 정의 결함은 재시도가 의미 없으므로 시도 잔량과 무관하게 `needs_replan`으로 간다.** 여기 속하는 것은 셋이다.
+**A task definition defect goes to `needs_replan` regardless of how many attempts remain, because retrying is meaningless.** Three things belong here.
 
-| reason | 상황 |
+| reason | Situation |
 |---|---|
-| `policy_denied_at_runtime` | `deny` 커맨드가 런타임에 도달했다 (`analyze`가 놓친 경우) |
-| `ac_not_discriminating` | baseline 에서 `expect_fail_before: true` 인 AC 가 이미 통과했다 |
-| `no_op_detected` | `implementation` task 인데 diff 가 비었고 AC 가 전부 통과했다 |
+| `policy_denied_at_runtime` | A `deny` command reached runtime (a case `analyze` missed) |
+| `ac_not_discriminating` | An AC with `expect_fail_before: true` already passed at baseline |
+| `no_op_detected` | It is an `implementation` task, but the diff is empty and every AC passed |
 
-### verdict 부여 규칙
+### Rules for assigning a verdict
 
-- `verdict_assigned`는 **attempt당 최대 한 번** 발생하며 payload에 `attempt` 번호를 기록한다.
-- `rejected`/`error` → `ready` → 재시도 경로가 존재하므로, task 전체에서 verdict가 한 번뿐이라는 규칙은 성립하지 않는다.
-- **task의 최종 verdict는 가장 큰 `attempt`의 `verdict_assigned`** 로 정의한다.
-- `verified`는 terminal에서만 기록한다. 증거 조건을 통과했다는 이유만으로 즉시 기록하지 않는다. 순서는 06.
-- **verdict 없이 state만 갖는 위 세 경우에도 `verdict_assigned`를 기록한다.** `verdict`가 `null`이고 `next_state`가 채워진다. `next_state`를 나르는 이벤트가 이것뿐이므로, 이벤트를 더하지 않고도 `state == fold(journal)`이 성립한다.
+- `verdict_assigned` occurs **at most once per attempt** and records the `attempt` number in the payload.
+- Because the `rejected`/`error` → `ready` → retry path exists, a rule that a task has exactly one verdict overall does not hold.
+- **A task's final verdict is defined as the `verdict_assigned` of the highest `attempt`.**
+- `verified` is recorded only at terminal. It is not recorded immediately merely because the evidence conditions passed. The order is in 06.
+- **In the three cases above that have only a state and no verdict, `verdict_assigned` is recorded as well.** `verdict` is `null` and `next_state` is filled in. This is the only event that carries `next_state`, so `state == fold(journal)` holds without adding an event.
 
 ---
 
-## Journal이 canonical, state는 projection
+## The journal is canonical, state is a projection
 
 ```
-journal.jsonl   append-only · 불변 · 단일 writer     <- canonical
-state.json      fold(journal) 의 스냅샷              <- 파생 캐시
+journal.jsonl   append-only · immutable · single writer   <- canonical
+state.json      a snapshot of fold(journal)               <- derived cache
 ```
 
-- `seq`는 1부터 단조 증가하며 **결번이 없다.**
-- 이벤트 `id = <run_id>-<seq:06d>`.
-- `state.json`은 `last_applied_seq`를 갖는다. 언제든 journal을 처음부터 fold해 재구성할 수 있다.
-- **쓰기 순서는 journal append + fsync → state 갱신이다.** 중간에 죽으면 스냅샷이 뒤처질 뿐 손실은 없다. 10 참조.
-- 이벤트는 불변이다. 정정은 삭제나 수정이 아니라 **새 이벤트**로 한다.
-- **병렬 실행에서도 journal writer는 오케스트레이터 프로세스 하나뿐이다.** 병렬화 대상은 agent 서브프로세스이지 상태 기록이 아니다.
+- `seq` increases monotonically from 1 and **has no gaps.**
+- The event `id = <run_id>-<seq:06d>`.
+- `state.json` holds `last_applied_seq`. The journal can be folded from the beginning at any time to reconstruct it.
+- **The write order is journal append + fsync → state update.** If it dies in between, the snapshot merely lags; nothing is lost. See 10.
+- Events are immutable. A correction is made by a **new event**, not by deletion or modification.
+- **Even under parallel execution the journal writer is exactly one orchestrator process.** What is parallelized is agent subprocesses, not state recording.
 
-`state == fold(journal)`은 `harness doctor`가 검사하는 불변식이다.
+`state == fold(journal)` is the invariant `harness doctor` checks.
 
-### 이벤트 레코드 공통 형태
+### Common shape of an event record
 
 ```json
 {"id": "run-20260827-1432-000042",
@@ -260,56 +260,56 @@ state.json      fold(journal) 의 스냅샷              <- 파생 캐시
  "payload": {}}
 ```
 
-`task_id`와 `attempt`는 run 수준 이벤트에서 `null`이다.
+`task_id` and `attempt` are `null` in run-level events.
 
-### 이벤트 목록 — canonical
+### Event list — canonical
 
-| type | 언제 | payload 핵심 |
+| type | When | Key payload |
 |---|---|---|
-| `run_started` | run 시작 | `manifest`, `profile`, `adapter`, `max_parallel` |
-| `precondition_checked` | precheck | `kind`, `name`, `ok`, `detail` (**값은 기록하지 않는다**) |
-| `command_policy_decision` | 커맨드 실행 직전 | `cmd`, `verdict`, `rule`, `approver` |
-| `task_dispatched` | 디스패치 | `context_manifest_ref`, `prompt_ref`, `effective_risk`, `base`(dispatch 시점 HEAD — diff 관측의 기준, 06 참조) |
-| `agent_started` | 프로세스 시작 | `adapter`, `workspace`, `outbox` |
-| `agent_finished` | 프로세스 종료 | `exit_code`, `duration_s`, `usage`(미보고 시 `null`), `runtime_failure`, `transcript_ref` |
+| `run_started` | run starts | `manifest`, `profile`, `adapter`, `max_parallel` |
+| `precondition_checked` | precheck | `kind`, `name`, `ok`, `detail` (**the value is never recorded**) |
+| `command_policy_decision` | just before a command executes | `cmd`, `verdict`, `rule`, `approver` |
+| `task_dispatched` | dispatch | `context_manifest_ref`, `prompt_ref`, `effective_risk`, `base` (HEAD at dispatch — the reference point for diff observation, see 06) |
+| `agent_started` | the process starts | `adapter`, `workspace`, `outbox` |
+| `agent_finished` | the process exits | `exit_code`, `duration_s`, `usage` (`null` when not reported), `runtime_failure`, `transcript_ref` |
 | `agent_exit_nonzero` | exit code ≠ 0 | `exit_code`, `stderr_tail` |
-| `claim_received` | claim 정규화 통과 | `outcome_claim` |
-| `claim_rejected` | claim schema 위반 | `error`, `path` |
-| `claim_uncorroborated` | claim 힌트를 probe 가 뒷받침하지 못함 | `hint`, `probe`, `probe_result` |
-| `handoff_received` | handoff 정규화 통과 | `fields` |
-| `handoff_rejected` | handoff schema 위반 | `error`, `path` |
-| `handoff_missing` | required handoff 부재 | `required`, `present` |
-| `ac_baseline_executed` | agent 실행 전 | `cmd`, `exit_code`, `classification`, `expect_fail_before` |
-| `ac_post_executed` | agent 실행 후 | `cmd`, `exit_code`, `classification`, `differential` |
-| `debt_opened` | 사전 실패 AC 발견 | `debt_id`, `cmd`, `origin_task` |
-| `debt_closed` | 해당 AC 가 green 이 됨 | `debt_id`, `closed_by` |
-| `debt_waived` | ship 이 waiver 를 인정 | `debt_id`, `approver`, `reason` |
-| `path_violation` | diff 가 허용 범위를 벗어남 | `paths`, `rule` |
-| `risk_escalated` | effective_risk 상향 | `declared`, `path_floor`, `diff_floor`, `effective` |
-| `review_finding` | 리뷰어 지적 | `wave`, `reviewer`, `severity`, `rule`, `file`, `line`, `blocking` |
-| `fixer_dispatched` | fixer 호출 | `wave`, `scope` (`code` 또는 `handoff`) |
-| `verdict_assigned` | attempt 종료 | `verdict`, `attempt`, `reason`, `next_state` |
-| `budget_checkpoint` | 예산 확인 | `tokens`, `cost_usd`, `wall_time_s`, `remaining` |
-| `run_finished` | run 종료 | `summary`, `open_debts`, `human_required` |
+| `claim_received` | claim passes normalization | `outcome_claim` |
+| `claim_rejected` | claim violates the schema | `error`, `path` |
+| `claim_uncorroborated` | a probe does not corroborate the claim's hint | `hint`, `probe`, `probe_result` |
+| `handoff_received` | handoff passes normalization | `fields` |
+| `handoff_rejected` | handoff violates the schema | `error`, `path` |
+| `handoff_missing` | a required handoff is absent | `required`, `present` |
+| `ac_baseline_executed` | before the agent executes | `cmd`, `exit_code`, `classification`, `expect_fail_before` |
+| `ac_post_executed` | after the agent executes | `cmd`, `exit_code`, `classification`, `differential` |
+| `debt_opened` | a pre-existing failure AC is found | `debt_id`, `cmd`, `origin_task` |
+| `debt_closed` | that AC becomes green | `debt_id`, `closed_by` |
+| `debt_waived` | ship accepts a waiver | `debt_id`, `approver`, `reason` |
+| `path_violation` | the diff goes outside the allowed scope | `paths`, `rule` |
+| `risk_escalated` | effective_risk escalated | `declared`, `path_floor`, `diff_floor`, `effective` |
+| `review_finding` | a reviewer's finding | `wave`, `reviewer`, `severity`, `rule`, `file`, `line`, `blocking` |
+| `fixer_dispatched` | a fixer is invoked | `wave`, `scope` (`code` or `handoff`) |
+| `verdict_assigned` | the attempt ends | `verdict`, `attempt`, `reason`, `next_state` |
+| `budget_checkpoint` | budget check | `tokens`, `cost_usd`, `wall_time_s`, `remaining` |
+| `run_finished` | run finishes | `summary`, `open_debts`, `human_required` |
 
-`classification`은 `green_before | red_before` (baseline) 또는 `green | red` (post)다.
+`classification` is `green_before | red_before` (baseline) or `green | red` (post).
 
-`agent_finished`의 `usage`와 `duration_s`가 11의 비용·속도 지표 전부의 원천이다. **별도 계측 코드를 두지 않는다.**
+`agent_finished`'s `usage` and `duration_s` are the source of all the cost and speed metrics in 11. **There is no separate instrumentation code.**
 
 ---
 
-## 파일 배치
+## File layout
 
 ```
 <repo>/
-  .harness/                       # 하네스 전용 control-plane
-    .gitignore                    # run 산출물은 커밋되지 않는다 — init 이 만든다
-    config.yaml                   # 하네스가 항상 메인 저장소에서 읽는다
+  .harness/                       # the harness's own control-plane
+    .gitignore                    # run outputs are not committed — init creates it
+    config.yaml                   # the harness always reads it from the main repository
     constitution.md
     approved_commands.yaml
-    waivers.yaml                  # ship 의 debt 면제 — 08
-    analyze.json  analyze-report.md          # analyze 의 게이트 기록과 보고 — 08
-    converge.json  coverage.md  ship-report.md   # converge·ship 의 산출 — 08
+    waivers.yaml                  # ship's debt exemption — 08
+    analyze.json  analyze-report.md          # analyze's gate record and report — 08
+    converge.json  coverage.md  ship-report.md   # what converge and ship produce — 08
     knowledge/K-###.yaml
     runs/<run-id>/
       manifest.json
@@ -322,58 +322,58 @@ state.json      fold(journal) 의 스냅샷              <- 파생 캐시
         handoff.json    | handoff.invalid.json
         verification.json
         review/wave-1/*.json
-        transcript/<outbox 이름>.log   # dispatch 마다 하나 — agent 의 stdout/stderr
+        transcript/<outbox name>.log   # one per dispatch — the agent's stdout/stderr
   specs/<slug>/spec.yaml
   tasks/T-###.task.yaml
   evals/fixtures/<case>/
 
 <system temp>/harness/<repo-key>/<run-id>/<task-id>/
-  worktree/                       # agent 의 cwd — 저장소 밖
+  worktree/                       # the agent's cwd — outside the repository
   outbox/attempt-<n>/
     result.json                   # claim
     handoff.json
     attachments/
 ```
 
-`<repo-key>`는 저장소 절대 경로에서 만든 키다. run-id는 시각에서 만들어지므로 저장소가 다르면 값이 같을 수 있고, 그 위에 워크트리가 만들어지면 서로의 작업을 덮는다.
+`<repo-key>` is a key made from the repository's absolute path. Because run-ids are derived from the clock, two different repositories can produce the same value, and if worktrees are made on top of it they overwrite each other's work.
 
-**워크트리와 outbox는 둘 다 저장소 밖이다.** 워크트리를 `.harness/` 안에 두면 agent의 cwd가 control-plane 안이 되어 "`.harness/`는 agent 영역이 아니다"와 정면충돌한다.
+**Both the worktree and the outbox are outside the repository.** Putting the worktree inside `.harness/` makes the agent's cwd sit inside the control-plane, which directly contradicts "`.harness/` is not agent territory".
 
-하네스는 `constitution.md`와 `config.yaml`을 **항상 메인 저장소에서 읽고, 워크트리에서는 절대 읽지 않는다.** 워크트리의 사본은 agent가 수정할 수 있는 저장소 콘텐츠이기 때문이다.
+The harness **always reads `constitution.md` and `config.yaml` from the main repository and never from the worktree.** That is because the copy in the worktree is repository content the agent can modify.
 
-`.harness/**`는 전역 `forbidden_paths`에 항상 포함된다.
+`.harness/**` is always included in the global `forbidden_paths`.
 
-`transcript/`의 파일 이름은 그 dispatch가 쓴 **outbox 디렉토리 이름**이다 — `attempt-2`,
-`attempt-1-repair-1`, `attempt-1-review-1-spec`. 한 task가 여러 번 dispatch되므로 이름이
-겹치면 무엇을 보고 있는지 알 수 없다. 내용은 어댑터가 수집한 stdout과 stderr이며, 하네스는
-이것을 **판정에 쓰지 않는다.** 남기는 이유는 조용히 실패한 agent(권한 거부, 턴 소진)의
-사후 진단이 그 밖에서는 불가능하기 때문이다. `agent_finished`의 `transcript_ref`가 경로를
-나른다.
+A file name in `transcript/` is the **outbox directory name** that dispatch wrote — `attempt-2`,
+`attempt-1-repair-1`, `attempt-1-review-1-spec`. One task is dispatched several times, so overlapping
+names leave no way to tell which dispatch a log belongs to. The content is the stdout and stderr the
+adapter collected, and the harness **does not use it for adjudication.** It is kept because post-hoc
+diagnosis of an agent that failed silently (permission denial, turns exhausted) is impossible
+otherwise. `agent_finished`'s `transcript_ref` carries the path.
 
-커밋되는 것은 사람이 쓴 입력(`config.yaml`, `constitution.md`, `approved_commands.yaml`,
-`waivers.yaml`, `knowledge/`)뿐이고 run 산출물(`runs/`, analyze·converge·ship 의 기록)은
-아니다. `harness init`이 그 경계를 `.harness/.gitignore`로 만든다. 이미 있으면 건드리지
-않는다 — 사람이 고친 파일이다.
+What gets committed is only human-written input (`config.yaml`, `constitution.md`, `approved_commands.yaml`,
+`waivers.yaml`, `knowledge/`), and not run outputs (`runs/`, the records of analyze, converge and ship).
+`harness init` makes that boundary as `.harness/.gitignore`. If it already exists it is not
+touched — a human has edited it.
 
 ### `config.yaml` — canonical
 
-control-plane 설정이다. `harness init`이 이 형태의 기본 파일을 만든다.
+The control-plane configuration. `harness init` creates a default file of this shape.
 
 ```yaml
-version: 1                    # 1 만 지원한다. 다르면 로드 실패다.
+version: 1                    # only 1 is supported. Anything else fails to load.
 
 defaults:
-  adapter: mock               # adapters 에 선언된 이름이어야 한다
+  adapter: mock               # must be a name declared in adapters
   profile: worktree           # safe | worktree | container | unsafe
-  max_parallel: 1             # 1 이상의 정수. 병렬은 M3 부터다.
+  max_parallel: 1             # an integer of 1 or more. Parallel starts at M3.
 
-allow_unsafe: false           # unsafe 프로파일 허용의 config 쪽 절반
+allow_unsafe: false           # the config half of allowing the unsafe profile
 
-adapters:                     # 최소 하나. type 이 필수이고
-  mock:                       # 나머지 키는 그 어댑터의 옵션이다 — 04 참조
+adapters:                     # at least one. type is required and
+  mock:                       # the remaining keys are that adapter's options — see 04
     type: mock
 ```
 
-- `defaults.adapter`가 `adapters`에 없으면 로드 실패다.
-- `profile: unsafe`는 `allow_unsafe: true` 없이 쓸 수 없다. 나머지 절반인 **CLI의 명시적 플래그**는 05가 canonical이다.
-- **모르는 최상위 키를 거부하지 않는다.** 뒤 마일스톤이 자기 키를 여기 더하며, 그 키의 canonical 정의는 그 기능을 소유한 문서에 있다 — `command_policy`·`ac_timeout_s`·`agent_timeout_s`·`max_attempts`·`max_handoff_repairs`·`blocked_signals`·`risk_rules`·`max_review_waves`·`adversarial_adapter`·`budget`은 06이고, `forbidden_paths`와 `container`는 05, `context`는 07, `health_commands`와 `knowledge`는 08이다.
+- If `defaults.adapter` is not in `adapters`, the load fails.
+- `profile: unsafe` cannot be used without `allow_unsafe: true`. For the other half, the **explicit CLI flag**, 05 is canonical.
+- **Unknown top-level keys are not rejected.** Later milestones add their own keys here, and the canonical definition of each key is in the document that owns that feature — `command_policy` · `ac_timeout_s` · `agent_timeout_s` · `max_attempts` · `max_handoff_repairs` · `blocked_signals` · `risk_rules` · `max_review_waves` · `adversarial_adapter` · `budget` are 06, `forbidden_paths` and `container` are 05, `context` is 07, and `health_commands` and `knowledge` are 08.

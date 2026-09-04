@@ -2,55 +2,56 @@
 
 > **Agents propose. Harness verifies. Evidence decides.**
 
-코딩 agent를 실행하고, **그 결과가 진짜인지 하네스가 직접 확인하는** 프레임워크.
+A framework that runs coding agents; **the harness itself checks whether the result is real**.
 
-agent는 코드를 쓰고 자기가 무엇을 했는지 보고한다. 하네스는 그 보고를 판정 근거로 쓰지
-않는다. acceptance criteria를 직접 실행하고, git diff를 직접 읽고, 변경 경로를 직접
-판정한다. 왜 그렇게 만들었는지와 파이프라인 전체는 [`docs/00-OVERVIEW.md`](docs/00-OVERVIEW.md)에 있다.
+The agent writes code and reports what it did. The harness does not use that report as a basis for
+adjudication. It runs the acceptance criteria itself, reads the git diff itself, and adjudicates the
+changed paths itself. Why it was built that way, and the whole pipeline, are in [`docs/00-OVERVIEW.md`](docs/00-OVERVIEW.md).
 
-## 상태
+## State
 
-`0.1.0`. 마일스톤 M0~M8이 전부 구현되어 있고 테스트 596개가 통과한다. 옵션 레이어를 전부
-제거해도 커널이 동작한다는 것은 `tests/test_kernel_only.py`가 서브프로세스로 강제한다.
+`0.1.0`. Milestones M0–M8 are all implemented and 596 tests pass. That the kernel works with the entire
+optional layer removed is enforced by `tests/test_kernel_only.py` in a subprocess.
 
-실사용으로 확인된 범위는 아직 좁다 — 어댑터는 `claude` CLI 하나, 능력 eval fixture는 하나
-(`evals/capability/slugify`), 프로파일은 `worktree` 하나다. 그 밖은 테스트로만 검증되어 있다.
+The scope confirmed in real use is still narrow — one adapter, the `claude` CLI; one capability eval
+fixture (`evals/capability/slugify`); one profile, `worktree`. Everything else is verified only by tests.
 
-## 요구사항
+## Requirements
 
 - Python 3.11+
 - git
-- 런타임 의존성: `PyYAML`, `jsonschema` (그 외는 stdlib)
-- agent를 실제로 돌리려면 그 벤더의 CLI (예: `claude`). 어댑터가 서브프로세스로만 호출한다.
+- Runtime dependencies: `PyYAML`, `jsonschema` (everything else is stdlib)
+- To actually run an agent, that vendor's CLI (e.g. `claude`). The adapter invokes it only as a subprocess.
 
-## 설치
+## Installation
 
 ```
 pip install .
 ```
 
-`harness` 명령이 설치된다. 설치 없이 저장소에서 바로 쓰려면 `python -m harness`도 같다.
+The `harness` command is installed. To use it straight from the repository without installing,
+`python -m harness` is the same.
 
-## 5분 quickstart
+## 5-minute quickstart
 
 ```bash
-cd <your-repo>            # git 저장소여야 한다
-harness init              # .harness/ 생성 (멱등)
-harness spec "사용자 이름을 slug 로 바꾸는 함수"   # R-### 이 붙은 Spec 골격
+cd <your-repo>            # must be a git repository
+harness init              # create .harness/ (idempotent)
+harness spec "a function that turns a user name into a slug"   # a Spec skeleton tagged R-###
 harness plan              # Spec → Plan
 harness tasks             # Plan → tasks/*.task.yaml (DAG)
-                          # ← 여기서 사람이 spec 의 [NEEDS CLARIFICATION] 과 task 의 AC 를 채운다
-harness analyze           # 구현 전 게이트. 비어 있으면 여기서 막힌다
-harness run               # DAG 실행
+                          # ← here a human fills in the spec's [NEEDS CLARIFICATION] and the task's AC
+harness analyze           # pre-implementation gate. If they are still empty, it blocks here
+harness run               # execute the DAG
 harness status            # verdict, open_debts, human_required
-harness converge          # 구현 후 게이트 — 커버리지·드리프트·debt
-harness ship              # 통합 브랜치를 사용자 브랜치로 머지
+harness converge          # post-implementation gate — coverage · drift · debt
+harness ship              # merge the integration branch into the user's branch
 ```
 
-`spec`·`plan`·`tasks`는 골격만 만든다. 사람이 채운 뒤 `analyze`를 통과시켜야 `run`이 돈다.
+`spec` · `plan` · `tasks` produce only a skeleton. A human fills it in, and `run` only proceeds once `analyze` passes.
 
-`init`이 만드는 `.harness/config.yaml`의 기본 어댑터는 `mock`이다. 실제 agent를 붙이려면
-그 자리를 바꾼다.
+The default adapter in the `.harness/config.yaml` that `init` creates is `mock`. To attach a real agent,
+change that slot.
 
 ```yaml
 defaults:
@@ -64,42 +65,43 @@ adapters:
 agent_timeout_s: 900
 ```
 
-같은 파일의 `command_policy`가 **하네스가 실행하는 모든 커맨드**를 통과시킨다. 기본값은
-fail-closed이고, 무엇이 자동 실행 승인되었는지는 거기 보이는 것이 전부다. 쓰기 전에 읽고
-프로젝트에 맞게 고친다.
+`command_policy` in the same file screens **every command the harness runs**. The default is
+fail-closed, and what is visible there is everything approved for automatic execution. Read it before
+use and adjust it to the project.
 
-## 무엇을 보증하지 않는가
+## What is not guaranteed
 
-읽고 시작할 것 — 이 프레임워크는 보증 범위를 명시적으로 좁혀 놓았다.
+Read before starting — this framework has explicitly narrowed the scope of what it guarantees.
 
-- 실행 프로파일이 무엇을 보장하고 무엇을 보장하지 않는지: [`docs/05-EXECUTION-ISOLATION.md`](docs/05-EXECUTION-ISOLATION.md)
-- 위협 모델과 비보장 목록: [`docs/09-SECURITY.md`](docs/09-SECURITY.md)
+- What the execution profiles guarantee and what they do not: [`docs/05-EXECUTION-ISOLATION.md`](docs/05-EXECUTION-ISOLATION.md)
+- The threat model and the list of non-guarantees: [`docs/09-SECURITY.md`](docs/09-SECURITY.md)
 
-요약하지 않는다. 두 문서가 canonical이다.
+We do not summarize them. Those two documents are canonical.
 
-## 측정
+## Measurement
 
-개선은 journal의 projection으로만 측정한다. 지표 정의는 [`docs/11-EVALUATION.md`](docs/11-EVALUATION.md),
-실제로 돌린 첫 능력 eval 결과는 [`evals/capability/eval-report.md`](evals/capability/eval-report.md)에 있다.
+Improvement is measured only as a projection of the journal. The metric definitions are in [`docs/11-EVALUATION.md`](docs/11-EVALUATION.md),
+and the result of the first capability eval actually run is in [`evals/capability/eval-report.md`](evals/capability/eval-report.md).
 
 ```
 harness eval run --fixtures evals/capability --arms raw,harness-full --repeat 3
 ```
 
-## 문서
+## Documents
 
-설계 문서 13개가 `docs/`에 있고 한 개념의 canonical 정의는 정확히 한 문서에만 있다.
-[`docs/00-OVERVIEW.md`](docs/00-OVERVIEW.md)의 문서 지도에서 시작한다.
+The 13 design documents are in `docs/`, and the canonical definition of any one concept lives in exactly
+one document. Start from the document map in [`docs/00-OVERVIEW.md`](docs/00-OVERVIEW.md).
+Korean translations of every document live in [`docs/ko/`](docs/ko), and of this page in [`README.ko.md`](README.ko.md).
 
-## 개발
+## Development
 
 ```
 pytest
 ```
 
-기여 전에 [`CLAUDE.md`](CLAUDE.md)를 읽는다 — 계약을 바꾸려면 canonical 문서를 먼저 고치고,
-테스트를 먼저 쓴다.
+Read [`CLAUDE.md`](CLAUDE.md) before contributing — to change a contract, fix the canonical document
+first, and write the test first.
 
-## 라이선스
+## License
 
-MIT. 전문은 [`LICENSE`](LICENSE)에 있다.
+MIT. The full text is in [`LICENSE`](LICENSE).

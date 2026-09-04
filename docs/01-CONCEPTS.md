@@ -1,100 +1,100 @@
-# 01 · 용어
+# 01 · Terms
 
-이 문서가 용어의 canonical 정의다. 다른 문서에서 같은 개념을 다른 이름으로 부르지 않는다.
+This document is the canonical definition of the terms. Other documents do not call the same concept by a different name.
 
-## 가장 중요한 구분
+## The Most Important Distinction
 
-네 가지가 자주 뭉뚱그려지고, 뭉뚱그려지는 순간 하네스는 agent의 자기 보고를 판정으로 쓰게 된다.
+Four things get lumped together often, and the moment they are, the harness ends up using the agent's self-report as adjudication.
 
 ```
-Claim      agent가 "내가 무엇을 했다"고 말한 것        — 서사. 힌트. optional.
-Handoff    agent가 다음 task를 위해 넘기는 구조화 데이터 — 계약. 별개 파일.
-Evidence   하네스가 직접 관측한 것                     — 사실. 판정의 유일한 근거.
-Verdict    하네스가 evidence로 내린 결론               — 5개 값 중 하나.
+Claim      what the agent said: "this is what I did"         — narrative. a hint. optional.
+Handoff    structured data the agent passes to the next task — a contract. a separate file.
+Evidence   what the harness observed itself                  — fact. the only basis for adjudication.
+Verdict    the conclusion the harness drew from evidence     — one of five values.
 ```
 
-**Claim은 Evidence가 아니다.** claim이 없어도, 깨져 있어도, 거짓이어도 판정은 동일하게 진행된다.
+**Claim is not Evidence.** Even if the claim is absent, malformed, or false, adjudication proceeds identically.
 
 ---
 
-## 파이프라인 산출물
+## Pipeline Outputs
 
-**Intent** — 사람이 자연어로 말한 목적. 파이프라인의 입력.
+**Intent** — the purpose a human stated in natural language. The input to the pipeline.
 
-**Spec** — Intent를 검증 가능한 요구사항 집합으로 정리한 것. `specs/<slug>/spec.yaml`. 미해소 질문은 `[NEEDS CLARIFICATION]` 마커로 남으며 `analyze`가 이를 막는다.
+**Spec** — Intent organized into a set of verifiable requirements. `specs/<slug>/spec.yaml`. Unresolved questions remain as `[NEEDS CLARIFICATION]` markers, and `analyze` blocks them.
 
-**Requirement (`R-###`)** — 스펙의 원자 단위. **수렴 추적의 축**이다. 모든 task는 자기가 어떤 R-###를 만족시키는지 `satisfies`로 선언하고, `converge`는 R-### → task → verdict → evidence 매트릭스를 만든다.
+**Requirement (`R-###`)** — the atomic unit of the spec. **The axis of convergence traceability.** Every task declares which R-### it satisfies through `satisfies`, and `converge` builds an R-### → task → verdict → evidence matrix.
 
-**Plan** — 요구사항을 어떤 순서와 구조로 구현할지에 대한 결정. Task DAG의 근거.
+**Plan** — the decision about the order and structure in which the requirements are implemented. The basis for the Task DAG.
 
-**Task** — 실행 단위. `tasks/T-###.task.yaml`. 계약은 03에 정의된다.
+**Task** — the unit of execution. `tasks/T-###.task.yaml`. The contract is defined in 03.
 
-**Task DAG** — task 간 `depends_on` 관계가 만드는 유향 비순환 그래프. 병렬 가능성의 근거이자 `analyze`의 검사 대상.
-
----
-
-## 실행 단위
-
-**Run** — 한 번의 `harness run` 실행. `run_id`로 식별되고 `.harness/runs/<run-id>/` 아래 모든 기록을 갖는다.
-
-**Attempt** — 한 task에 대한 한 번의 agent 실행 시도. `rejected`나 `error` 후 재시도하면 attempt 번호가 올라간다. **verdict는 attempt 단위로 부여된다.**
-
-**Workspace** — agent의 cwd. `worktree` 프로파일에서는 저장소 밖에 만들어진 git worktree다. 05 참조.
-
-**Outbox** — agent가 결과 아티팩트(claim, handoff)를 쓰는 디렉토리. 워크스페이스 밖이고 `.harness/` 밖이다. attempt마다 새로 만들어진다. 04 참조.
+**Task DAG** — the directed acyclic graph formed by `depends_on` relations between tasks. The basis for what can run in parallel and the object of `analyze`'s check.
 
 ---
 
-## 판정에 관한 것
+## Units of Execution
 
-**Claim** — agent의 자기 보고. **optional이며 힌트다.** 없어도 틀려도 판정은 진행된다. 어떤 verdict도 claim만으로 결정되지 않는다. claim의 `blocked_hint`는 결론이 아니라 하네스가 확인해 볼 가설이며, 하네스가 probe로 확인하지 못하면 인정되지 않는다.
+**Run** — one execution of `harness run`. Identified by `run_id`, and it holds every record under `.harness/runs/<run-id>/`.
 
-**Handoff** — 다음 task가 쓸 구조화 데이터. claim과 **별개 아티팩트**다. 서사와 데이터는 소비자도 수명도 다르기 때문에 파일을 분리한다. 하나가 깨져도 다른 하나는 살아남는다.
+**Attempt** — one attempt at executing the agent for one task. Retrying after `rejected` or `error` raises the attempt number. **A verdict is assigned per attempt.**
 
-**Evidence** — 하네스가 직접 만든 관측치. precondition probe 결과, AC 실행 결과, git diff, 경로 판정, Command Policy 판정, 리뷰 finding. **판정의 유일한 근거.**
+**Workspace** — the agent's cwd. Under the `worktree` profile it is a git worktree created outside the repository. See 05.
 
-**Acceptance Criteria (AC)** — task가 만족해야 할, 하네스가 직접 실행하는 커맨드. agent가 실행하는 것이 아니다. `expect_fail_before`가 붙으면 red→green 증명을 요구한다. 06 참조.
-
-**Verdict** — 판정 결과. **`verified | rejected | blocked | error | budget_exhausted`** 다섯 개뿐이다. canonical 정의는 03.
-
-**State** — task의 워크플로 위치. verdict와 **다른 축**이다. `repairing`, `needs_replan`, `human_required` 같은 값은 state이지 verdict가 아니다. canonical 정의는 03.
-
-**Finding** — 리뷰어가 낸 구조화된 지적. `{severity, rule, file, line, message, blocking}`. `blocking`은 결정론적 규칙으로 계산된다.
-
-**Debt** — 어떤 task의 책임도 아니지만 해소되지 않은 문제. 대표적으로 task 실행 전부터 실패하고 있던 AC. **task 판정은 막지 않고 ship을 막는다.** 08의 `open_debts` 원장이 관리한다.
+**Outbox** — the directory the agent writes its result artifacts (claim, handoff) into. It is outside the workspace and outside `.harness/`. A new one is created per attempt. See 04.
 
 ---
 
-## 기록
+## On Adjudication
 
-**Event** — journal에 append되는 불변 레코드. **canonical 진실이자 모든 지표의 원천.** 정정은 삭제가 아니라 새 이벤트로 한다.
+**Claim** — the agent's self-report. **It is optional and a hint.** Adjudication proceeds whether it is absent or wrong. No verdict is decided by the claim alone. A claim's `blocked_hint` is not a conclusion but a hypothesis for the harness to check, and if the harness cannot corroborate it with a probe, it is not accepted.
 
-**Journal** — `journal.jsonl`. run의 전체 이벤트 로그. 단일 writer.
+**Handoff** — structured data the next task will use. It is a **separate artifact** from the claim. Narrative and data differ in both consumer and lifetime, so the files are separated. If one is broken, the other survives.
 
-**State projection** — `state.json`. journal을 fold해서 만든 파생 스냅샷. 언제든 재구성 가능하다. journal이 canonical이고 state는 캐시다.
+**Evidence** — observations the harness itself produced. Precondition probe results, AC execution results, git diff, path adjudication, Command Policy adjudication, review findings. **The only basis for adjudication.**
 
----
+**Acceptance Criteria (AC)** — the commands a task must satisfy, which the harness itself runs. It is not the agent that runs them. When `expect_fail_before` is attached, a red→green proof is required. See 06.
 
-## 정책과 격리
+**Verdict** — the result of adjudication. **`verified | rejected | blocked | error | budget_exhausted`** — exactly these five. The canonical definition is 03.
 
-**Execution profile** — `safe | worktree | container | unsafe`. 각 프로파일이 무엇을 보장하고 무엇을 보장하지 않는지는 05가 canonical이다.
+**State** — the task's position in the workflow. It is a **different axis** from verdict. Values such as `repairing`, `needs_replan`, `human_required` are states, not verdicts. The canonical definition is 03.
 
-**Command Policy** — 하네스가 커맨드를 실행하기 전에 통과시켜야 하는 승인 절차. `allow | deny | require_approval`, 기본값 fail-closed. `allow`는 "이 명령이 본질적으로 안전하다"가 아니라 **"이 프로젝트에서 자동 실행이 승인된 command class"** 라는 뜻이다. canonical 정의는 06, 보안적 의미는 09.
+**Finding** — a structured finding a reviewer raised. `{severity, rule, file, line, message, blocking}`. `blocking` is computed by a deterministic rule.
 
-**effective_risk** — `max(declared_risk, path_floor, diff_floor)`. task가 선언한 risk를 그대로 믿지 않고, 변경 경로와 diff 규모로 바닥값을 올린다. 리뷰 티어를 결정한다. 06 참조.
-
-**Provenance / trust** — 컨텍스트 각 구획의 출처와 그에 따른 신뢰 등급. 신뢰는 계층 번호가 아니라 **출처로만** 결정된다. canonical 정의는 07.
+**Debt** — a problem that is no task's responsibility but remains unresolved. Typically an AC that was already failing before the task ran. **It does not block task adjudication; it blocks ship.** The `open_debts` ledger of 08 manages it.
 
 ---
 
-## 학습과 측정
+## Records
 
-**Knowledge card** — 반복 관찰에서 승격된 재사용 가능한 지식. `.harness/knowledge/K-###.yaml`. **constitution을 덮어쓸 수 없고, acceptance criteria가 될 수 없다.**
+**Event** — an immutable record appended to the journal. **The canonical truth and the source of every metric.** A correction is made by a new event, not by deletion.
 
-**Constitution** — `.harness/constitution.md`. 프로젝트가 절대 어기지 않는 규칙. 하네스 control-plane에 있으며 항상 trusted다.
+**Journal** — `journal.jsonl`. The whole event log of a run. A single writer.
 
-**Fixture** — eval의 단위 사례. 초기 저장소, spec, hidden grader를 갖는다. 11 참조.
+**State projection** — `state.json`. A derived snapshot made by folding the journal. It can be reconstructed at any time. The journal is canonical and state is a cache.
 
-**Arm** — eval에서 비교하는 실행 조건. `raw`, `harness-lite`, `harness-full`, `ablation:<feature>`.
+---
 
-**Hidden grader** — fixture에 숨겨진 채점 기준. **task의 acceptance에도, agent 컨텍스트에도 절대 들어가지 않는다.** 모든 arm을 동일한 기준으로 채점하는 외부 oracle이다.
+## Policy and Isolation
+
+**Execution profile** — `safe | worktree | container | unsafe`. What each profile guarantees and does not guarantee — 05 is canonical.
+
+**Command Policy** — the approval procedure a command must go through before the harness executes it. `allow | deny | require_approval`, default fail-closed. `allow` does not mean "this command is inherently safe"; it means **"a command class approved for automatic execution in this project."** The canonical definition is 06, and the security meaning is 09.
+
+**effective_risk** — `max(declared_risk, path_floor, diff_floor)`. It does not take the task's declared risk at face value; it raises the floor from the changed paths and the diff size. It determines the review tier. See 06.
+
+**Provenance / trust** — the provenance of each compartment of the context and the trust level that follows from it. Trust is determined **by provenance alone**, not by layer number. The canonical definition is 07.
+
+---
+
+## Learning and Measurement
+
+**Knowledge card** — reusable knowledge promoted from repeated observation. `.harness/knowledge/K-###.yaml`. **It cannot override the constitution, and it cannot become acceptance criteria.**
+
+**Constitution** — `.harness/constitution.md`. The rules the project never breaks. It lives in the harness control-plane and is always trusted.
+
+**Fixture** — the unit case of an eval. It has an initial repository, a spec, and a hidden grader. See 11.
+
+**Arm** — the execution condition compared in an eval. `raw`, `harness-lite`, `harness-full`, `ablation:<feature>`.
+
+**Hidden grader** — the grading criteria hidden in the fixture. **It never enters either the task's acceptance or the agent's context.** It is an external oracle that grades every arm by the same criteria.

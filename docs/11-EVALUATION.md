@@ -1,25 +1,25 @@
-# 11 · 평가
+# 11 · Evaluation
 
-이 문서는 **지표 정의의 canonical 위치**다.
+This document is the **canonical location for metric definitions**.
 
-> 원칙 7 — 개선은 측정된다.
+> Principle 7 — improvement is measured.
 
-하네스가 실제로 결과를 개선하는지 증명하지 못하면 이 프레임워크는 복잡성만 추가한 것이다. 그 증명을 위한 장치가 eval이다.
+If the harness cannot be proven to actually improve results, this framework has added nothing but complexity. eval is the apparatus for that proof.
 
 ---
 
-## 두 종류의 eval을 섞지 않는다
+## The two kinds of eval are not mixed
 
-|  | 회귀 eval | 능력 eval |
+|  | regression eval | capability eval |
 |---|---|---|
-| 묻는 것 | 오케스트레이션이 규약대로 동작하는가 | 하네스가 실제로 결과를 개선하는가 |
-| 어댑터 | `mock` | 실제 벤더 어댑터 |
-| 결정론 | 완전 | 비결정론 → 반복 실행 + 분산 보고 |
-| 비용 | 0 | 실비 |
-| 위치 | CI 필수 | 수동 또는 주기 실행 |
-| 도입 | **M1** | **M7** |
+| What it asks | does the orchestration behave according to the convention | does the harness actually improve results |
+| Adapter | `mock` | the real vendor adapter |
+| Determinism | complete | nondeterminism → repeated runs plus variance reporting |
+| Cost | 0 | real money |
+| Location | required in CI | manual or periodic execution |
+| Introduced | **M1** | **M7** |
 
-섞으면 둘 다 못 쓰게 된다. CI가 비결정론적이 되거나, 능력 측정이 mock의 시나리오를 재확인하는 일이 된다.
+Mixing them makes both unusable. Either CI becomes nondeterministic, or capability measurement becomes a re-confirmation of the mock's scenario.
 
 ---
 
@@ -27,78 +27,78 @@
 
 ```
 evals/fixtures/<case>/
-  seed/                   # 초기 저장소 전체
-  tasks/                  # 선택. 없으면 seed 의 스펙에서 하네스가 plan/tasks 를 만든다
+  seed/                   # the entire initial repository
+  tasks/                  # optional. without it the harness builds plan/tasks from the spec in seed
   grader/
-    hidden_ac.yaml        # 채점 기준
-    expected.yaml         # 기대 산출물 형태
-  meta.yaml               # 난이도, 도메인, 예상 소요
+    hidden_ac.yaml        # the grading criteria
+    expected.yaml         # the expected shape of the outputs
+  meta.yaml               # difficulty, domain, expected duration
 ```
 
-`seed/`는 초기 저장소 전체다. 그래서 `.harness/`도, `specs/<slug>/spec.yaml`(03의 파일 배치)도 그 안에 있다. `.harness/`는 fixture가 자기 어댑터와 Command Policy를 선언하는 자리다.
+`seed/` is the entire initial repository. So `.harness/` is inside it, and so is `specs/<slug>/spec.yaml` (the file layout in 03). `.harness/` is where a fixture declares its own adapter and Command Policy.
 
-### `grader/expected.yaml` — 회귀 eval의 채점 기준
+### `grader/expected.yaml` — the grading criteria of the regression eval
 
-회귀 eval이 묻는 것은 "오케스트레이션이 규약대로 동작했는가"다. 따라서 채점 대상은 산출된 코드가 아니라 **journal이 만든 최종 state**다.
+What the regression eval asks is "did the orchestration behave according to the convention". So what is graded is not the code produced but **the final state the journal produced**.
 
 ```yaml
 tasks:
   T-001: {verdict: verified, state: done}
   T-002: {verdict: blocked,  state: human_required}
-open_debts: []              # 남아 있어야 할 debt 의 커맨드 목록
+open_debts: []              # the command list of the debts that must remain
 human_required: [T-002]
 ```
 
-- 적지 않은 키는 채점하지 않는다. fixture가 주장하는 것만 적는다.
-- `verdict`가 `null`인 것도 주장이다 — 03의 "verdict 없이 state만 갖는" 경우다.
+- Keys not written are not graded. The fixture writes only what it asserts.
+- A `verdict` of `null` is an assertion too — the case in 03 of "having only a state, with no verdict".
 
-`hidden_ac.yaml`은 최종 트리를 채점하며 능력 eval이 쓴다. 회귀 eval은 `mock`으로 돌므로 트리를 채점하지 않는다.
+`hidden_ac.yaml` grades the final tree and is used by the capability eval. The regression eval runs on `mock`, so it does not grade the tree.
 
-### hidden grader의 절대 규칙
+### The absolute rule of the hidden grader
 
-> **grader의 AC는 task `acceptance`에도, 컨텍스트 조립에도 절대 들어가지 않는다.**
+> **The grader's ACs never enter the task `acceptance`, and never enter context assembly.**
 
-들어가는 순간 agent가 채점 기준에 최적화하므로 측정이 무의미해진다. 이것은 편의상의 관례가 아니라 eval의 타당성 자체다. `eval/fixtures.py`는 fixture를 로드할 때 `grader/`를 컨텍스트 소스에서 물리적으로 제외한다.
+The moment they enter, the agent optimizes for the grading criteria and the measurement becomes meaningless. This is not a convenience convention but the validity of the eval itself. When `eval/fixtures.py` loads a fixture it physically excludes `grader/` from the context sources.
 
 ---
 
 ## Arm
 
-| arm | 내용 |
+| arm | Content |
 |---|---|
-| `raw` | 하네스 없이 스펙 전문을 한 번에 투입 |
-| `harness-lite` | 커널만 (02의 커널/옵션 경계) |
-| `harness-full` | 전체 |
-| `ablation:<feature>` | 특정 기능만 제거 |
+| `raw` | the full text of the spec injected at once, without the harness |
+| `harness-lite` | the kernel only (the kernel/optional boundary in 02) |
+| `harness-full` | everything |
+| `ablation:<feature>` | one specific feature removed |
 
-`raw`도 **얇은 측정 전용 래퍼**로 실행한다. 래퍼는 판정하지 않는다 — journal 에 남기는 것은 `run_started`/`run_finished`, `agent_started`/`agent_finished`, 그리고 fixture 에 `tasks/` 가 있으면 그 AC 합집합의 사후 실행(`ac_post_executed` 와 그것이 낳는 `command_policy_decision`)뿐이다. 판정 이벤트는 없다. 그래야 모든 arm의 지표가 같은 journal 스키마에서 나온다.
+`raw` too is executed through a **thin measurement-only wrapper**. The wrapper does not adjudicate — what it leaves in the journal is `run_started`/`run_finished`, `agent_started`/`agent_finished`, and, if the fixture has `tasks/`, the post-hoc execution of the union of their ACs (`ac_post_executed` and the `command_policy_decision` it produces), and nothing else. There are no adjudication events. That is how every arm's metrics come out of the same journal schema.
 
-### arm 의 조립
+### The assembly of an arm
 
-| arm | 조립 |
+| arm | Assembly |
 |---|---|
-| `raw` | 측정 래퍼. 프롬프트는 `specs/*/spec.yaml` 전문을 이어붙인 것이고, workspace 는 materialize 된 저장소의 워킹트리 자체다. outbox 는 저장소 밖이다. AC 사후 실행도 Command Policy 를 통과한다 |
-| `harness-lite` | 커널만 — sequential runner. 컨텍스트 조립 없음, 리뷰 없음, `max_parallel` 은 1 로 강제 |
-| `harness-full` | `harness run` 과 같은 조립 — 컨텍스트 빌더 + 리뷰 스테이지, `max_parallel > 1` 이면 병렬 스케줄러 |
-| `ablation:<feature>` | `harness-full` 에서 하나만 제거. `feature` ∈ {`context`, `review`, `parallel`} |
+| `raw` | The measurement wrapper. The prompt is the full text of `specs/*/spec.yaml` concatenated, and the workspace is the working tree of the materialized repository itself. The outbox is outside the repository. The post-hoc execution of the ACs also goes through Command Policy |
+| `harness-lite` | The kernel only — sequential runner. No context assembly, no review, `max_parallel` forced to 1 |
+| `harness-full` | The same assembly as `harness run` — context builder + review stage, and the parallel scheduler if `max_parallel > 1` |
+| `ablation:<feature>` | `harness-full` with exactly one thing removed. `feature` ∈ {`context`, `review`, `parallel`} |
 
 ---
 
-## 모든 arm은 동일한 hidden grader로 채점된다
+## Every arm is graded by the same hidden grader
 
 ```
 raw   harness-lite   harness-full   ablation:<f>
   │         │              │              │
   └─────────┴──────┬───────┴──────────────┘
                    ▼
-           동일 hidden grader
+        the same hidden grader
                    ▼
             external_success
 ```
 
-하네스의 ship 게이트로 arm을 비교하면 `raw`는 애초에 ship 게이트를 갖지 않으므로 비교가 성립하지 않는다. **채점자는 하네스 밖에 있어야 한다.**
+Comparing arms by the harness's ship gate does not hold, because `raw` has no ship gate to begin with. **The grader must live outside the harness.**
 
-### `grader/hidden_ac.yaml` — 능력 eval 의 채점 기준
+### `grader/hidden_ac.yaml` — the grading criteria of the capability eval
 
 ```yaml
 acceptance:
@@ -107,144 +107,144 @@ acceptance:
     shell: false
 ```
 
-- 항목의 모양은 task `acceptance` 와 같다 — argv 리스트가 기본이고 `shell` 은 선언해야 한다.
-- argv 항목의 `{grader}` 는 그 fixture 의 `grader/` 절대 경로로 치환된다. 채점에만 쓰는 자료를
-  트리에 심지 않고 참조하기 위한 것이다. 치환은 grader 실행에서만 일어나며 컨텍스트 조립에는
-  `grader/` 가 여전히 없다.
-- 실행 cwd 는 **채점 대상 트리**, 타임아웃은 config `ac_timeout_s` 다.
-- 전부 green 이면 그 실행은 grader 성공이다. `hidden_ac_pass_rate` 는 green AC 수 / 전체 AC 수다.
-- grader 커맨드도 Command Policy 를 통과한다 — materialize 된 저장소의 config 기준이다. 정책이 막으면 그 AC 는 red 이고 사유가 `eval.json` 에 남는다.
-- run journal 은 `run_finished` 로 닫혔으므로 **grader 는 journal 에 쓰지 않는다.** grader 의 결과와 정책 판정은 `eval.json` 이 갖는다.
-- `hidden_ac.yaml` 이 없거나 `acceptance` 가 비어 있으면 능력 eval 은 그 fixture 를 **실행하지 않고 오류로 거부한다.** 채점 기준 없는 측정은 공허하게 성공할 뿐이다.
+- An item has the same shape as a task `acceptance` — an argv list is the default and `shell` must be declared.
+- `{grader}` in an argv item is substituted with the absolute path of that fixture's `grader/`. It is there to reference
+  material used only for grading without planting it in the tree. The substitution happens only in grader execution, and
+  `grader/` is still absent from context assembly.
+- The execution cwd is **the tree being graded**, and the timeout is the config `ac_timeout_s`.
+- If all are green, that run is a grader success. `hidden_ac_pass_rate` is the number of green ACs / the total number of ACs.
+- Grader commands also go through Command Policy — by the config of the materialized repository. If the policy blocks it, that AC is red and the reason is recorded in `eval.json`.
+- The run journal is closed by `run_finished`, so **the grader does not write to the journal.** `eval.json` holds the grader's results and the policy adjudication.
+- If `hidden_ac.yaml` is absent or `acceptance` is empty, the capability eval **refuses that fixture with an error without running it.** A measurement with no grading criteria only succeeds vacuously.
 
-### 채점 대상 트리
+### The tree being graded
 
-grader 가 실행되는 cwd 는 **run 이 끝난 뒤 사용자가 갖게 되는 트리**다.
+The cwd where the grader runs is **the tree the user ends up with after the run finishes**.
 
-| 실행 | 채점 대상 |
+| Execution | What is graded |
 |---|---|
-| `raw` arm | agent 가 작업한 워킹트리 그 자체 |
-| 하네스 arm | integration 브랜치가 있으면 그 tip 의 분리 체크아웃 (converge 와 같은 방식), 없으면 저장소 워킹트리 |
+| `raw` arm | the very working tree the agent worked in |
+| harness arm | if an integration branch exists, a detached checkout at its tip (the same way as converge); otherwise the repository working tree |
 
-기준은 프로파일 선언이 아니라 **integration 브랜치의 존재**다 — task 별 프로파일 오버라이드가 섞여 있어도 ship 이 머지할 그 트리를 채점한다.
+The criterion is not the declared profile but **the existence of the integration branch** — even with per-task profile overrides mixed in, what is graded is the tree ship would merge.
 
-### `escape_rate` / `false_block_rate` 의 분모
+### The denominator of `escape_rate` / `false_block_rate`
 
-- 측정 단위는 **실행 1회** (fixture × arm × repeat) 이며 하네스 arm 에만 정의된다.
-- "verified 로 판정" = run 의 모든 task 의 최종 verdict 가 `verified`.
-- "rejected/blocked 로 판정" = 최종 verdict 중 `rejected` 또는 `blocked` 가 하나 이상.
-- `escape_rate` = verified 실행 중 grader 실패 비율. `false_block_rate` = rejected/blocked 실행 중 grader 성공 비율.
-- 분모가 0 이면 지표는 null 이고 리포트에 `n/a` 로 표시한다.
+- The unit of measurement is **one run** (fixture × arm × repeat), and it is defined only for harness arms.
+- "adjudicated verified" = the final verdict of every task in the run is `verified`.
+- "adjudicated rejected/blocked" = at least one of the final verdicts is `rejected` or `blocked`.
+- `escape_rate` = the rate of grader failure among verified runs. `false_block_rate` = the rate of grader success among rejected/blocked runs.
+- If the denominator is 0 the metric is `null` and is shown as `n/a` in the report.
 
 ---
 
-## 지표 — canonical
+## Metrics — canonical
 
-### 외부 결과 지표 — arm 비교의 핵심
+### External outcome metrics — the core of arm comparison
 
-하네스 바깥의 oracle 기준이다.
+The criterion is an oracle outside the harness.
 
-| 지표 | 정의 |
+| Metric | Definition |
 |---|---|
-| `grader_success_rate` | hidden grader 기준으로 성공한 fixture 비율. **arm 비교는 이 값으로만 한다** |
-| `hidden_ac_pass_rate` | hidden AC 단위의 통과율 |
+| `grader_success_rate` | the rate of fixtures that succeeded by the hidden grader's criterion. **Arm comparison uses this value only** |
+| `hidden_ac_pass_rate` | the pass rate in units of a hidden AC |
 
-### 하네스 보정 지표 — 하네스의 판단이 얼마나 정확했는가
+### Harness calibration metrics — how accurate the harness's judgment was
 
-| 지표 | 정의 |
+| Metric | Definition |
 |---|---|
-| `escape_rate` | 하네스는 `verified`로 판정했으나 hidden grader 는 실패로 본 비율 |
-| `false_block_rate` | 하네스가 `rejected`/`blocked` 했으나 최종 트리를 hidden grader 로 채점하면 성공인 비율 |
+| `escape_rate` | the rate at which the harness adjudicated `verified` but the hidden grader saw a failure |
+| `false_block_rate` | the rate at which the harness adjudicated `rejected`/`blocked` but grading the final tree with the hidden grader is a success |
 
-**이 둘이 설계를 정당화하거나 반증한다.**
+**These two justify the design or refute it.**
 
-- `escape_rate`가 높다면 AC와 리뷰에 검증력이 없다는 뜻이다. 06이 인정한 "남는 최대 리스크"의 수치화다.
-- `false_block_rate`가 높다면 하네스가 올바른 작업을 막고 있다는 뜻이다. 차등 판정과 리뷰 티어를 다시 봐야 한다.
+- A high `escape_rate` means the ACs and the review have no discriminating power. It is the quantification of the "largest remaining risk" 06 admits.
+- A high `false_block_rate` means the harness is blocking correct work. Differential adjudication and the review tiers must be re-examined.
 
-### 내부 지표
+### Internal metrics
 
-| 지표 | 정의 |
+| Metric | Definition |
 |---|---|
-| `ship_gate_pass_rate` | ship 게이트를 통과한 비율. **하네스 arm 에만 의미가 있으며 arm 비교에 쓰지 않는다** |
+| `ship_gate_pass_rate` | the rate of passing the ship gate. **It is meaningful only for harness arms and is not used for arm comparison** |
 
-### 비용·속도 지표
+### Cost and speed metrics
 
-| 지표 | 원천 이벤트 |
+| Metric | Source event |
 |---|---|
-| `first_pass_rate` | `verdict_assigned` (attempt 1 에서 verified 인 비율) |
-| `retry_count` | `verdict_assigned` 의 attempt 최대값 |
+| `first_pass_rate` | `verdict_assigned` (the rate of being verified at attempt 1) |
+| `retry_count` | the maximum attempt of `verdict_assigned` |
 | `review_waves` | `review_finding`, `fixer_dispatched` |
 | `wall_time_s` | `run_started`, `run_finished` |
-| `agent_time_s` | `agent_finished.duration_s` 합 |
+| `agent_time_s` | the sum of `agent_finished.duration_s` |
 | `tokens_in` / `tokens_out` | `agent_finished.usage` |
-| `cost_usd` | `agent_finished.usage` — 벤더 미보고 시 `null`. **추정하지 않는다** |
-| `human_interventions` | `human_required` 로 간 횟수 |
-| `convergence` | ship 시점의 커버리지 %, 드리프트 수, 수렴까지의 wave 수 |
-| `context_tokens` | `context.manifest.json` 의 `total_tokens` |
+| `cost_usd` | `agent_finished.usage` — `null` when the vendor does not report it. **It does not estimate** |
+| `human_interventions` | the number of times it went to `human_required` |
+| `convergence` | coverage % at ship time, the number of drifts, the number of waves to convergence |
+| `context_tokens` | `total_tokens` in `context.manifest.json` |
 
-**전부 journal의 projection이며 별도 계측 코드가 없다.** 지표를 위해 코드에 카운터를 심지 않는다. 새 지표가 필요하면 먼저 필요한 이벤트가 있는지 본다.
+**All of them are projections of the journal, and there is no separate instrumentation code.** No counters are planted in the code for a metric. If a new metric is needed, first look at whether the event it needs exists.
 
-`cost_usd`는 벤더가 보고하지 않으면 `null`이다. 토큰 단가 추정 모델을 만들지 않는다. `null`인 지표는 리포트에 `n/a`로 표시하고 평균에서 제외한다.
+`cost_usd` is `null` when the vendor does not report it. No token-price estimation model is built. A `null` metric is shown as `n/a` in the report and excluded from averages.
 
 ---
 
-## 실행과 보고
+## Execution and reporting
 
 ```
 harness eval run --fixtures evals/capability --arms raw,harness-full --repeat 3
 ```
 
-- `--fixtures <dir>` 는 `<dir>/<case>/seed/` 를 찾고, 없으면 `<dir>/fixtures/<case>/seed/` 를 찾는다.
-- 이 저장소는 회귀 fixture 를 `evals/fixtures/` 에, 능력 fixture 를 `evals/capability/` 에 둔다. 능력 eval 은 `hidden_ac.yaml` 이 비어 있는 fixture 를 거부하므로 둘을 한 디렉토리에 섞지 않는다.
-- 산출은 `--out` (기본: `--fixtures` 디렉토리) 에 쓰는 `eval-report.md` 와 `eval.json` 이다.
-- 실행 저장소들은 시스템 temp 의 작업 디렉토리에 남고, `eval.json` 이 그 경로를 기록한다. 실패를 파고들 때 journal 이 필요하기 때문이다.
+- `--fixtures <dir>` looks for `<dir>/<case>/seed/`, and failing that for `<dir>/fixtures/<case>/seed/`.
+- This repository puts regression fixtures in `evals/fixtures/` and capability fixtures in `evals/capability/`. The capability eval refuses a fixture whose `hidden_ac.yaml` is empty, so the two are not mixed in one directory.
+- The outputs are `eval-report.md` and `eval.json`, written to `--out` (default: the `--fixtures` directory).
+- The run repositories remain in a working directory under the system temp, and `eval.json` records that path. Digging into a failure needs the journal.
 
-### 능력 eval 보고 규칙
+### Reporting rules for the capability eval
 
-- **중앙값과 분산을 함께 보고한다.** 비율 지표(`grader_success_rate` 등)는 실행 단위 비율로 집계하고 fixture 별 내역을 나열한다. 연속 지표(`wall_time_s`, `agent_time_s`, 토큰, `cost_usd`, `context_tokens`)는 **중앙값과 [min, max]** 를 보고한다. null 값은 제외하고, 전부 null 이면 `n/a` 다.
-- **단일 실행 수치를 개선의 근거로 제시하는 것을 금지한다.** LLM 실행은 비결정론적이므로 한 번의 좋은 결과는 정보가 아니다.
-- `--repeat`의 기본값은 3이며, 그보다 적게 실행한 결과에는 리포트가 경고를 표시한다.
-- 각 arm의 실패 사례를 fixture 단위로 나열한다. 집계만 보여주면 어디가 왜 실패했는지 알 수 없다.
+- **Report the median together with the variance.** Rate metrics (`grader_success_rate` and the like) are aggregated as a rate in units of a run, with the per-fixture breakdown listed. Continuous metrics (`wall_time_s`, `agent_time_s`, tokens, `cost_usd`, `context_tokens`) report **the median and [min, max]**. `null` values are excluded, and if all are `null` it is `n/a`.
+- **Presenting a single-run figure as the basis for improvement is prohibited.** LLM execution is nondeterministic, so one good result is not information.
+- The default for `--repeat` is 3, and the report shows a warning on a result run fewer times than that.
+- Each arm's failure cases are listed per fixture. Showing only the aggregate leaves no way to know where and why it failed.
 
 ---
 
-## 아키텍처상의 위치
+## Position in the architecture
 
-`eval`은 **커널 밖**이다. 02의 의존 방향을 따른다.
+`eval` is **outside the kernel**. It follows the dependency direction in 02.
 
 ```
 exec/* · context/*  ←  eval/*  ←  cli
 ```
 
-- **`cli`가 `eval`을 호출한다.** `eval`은 `cli`를 import하지 않는다.
-- `eval`이 의존하는 하위 API는 `store`(journal 읽기), `exec/runner`(실행), `adapters/registry`(arm별 어댑터 선택), `spec`(`tasks/` 없는 fixture 의 골격), `models`뿐이다.
-- `eval`을 import하는 모듈은 `cli` 하나다. 순환 의존은 금지한다.
-- eval fixture가 실행하는 커맨드도 Command Policy를 통과한다. 06 참조.
+- **`cli` calls `eval`.** `eval` does not import `cli`.
+- The lower-level APIs `eval` depends on are only `store` (reading the journal), `exec/runner` (execution), `adapters/registry` (selecting the adapter per arm), `spec` (the skeleton for a fixture with no `tasks/`), and `models`.
+- The only module that imports `eval` is `cli`. Circular dependency is forbidden.
+- Commands an eval fixture executes also go through Command Policy. See 06.
 
 ---
 
-## 외부 벤치마크
+## External benchmarks
 
-외부 대형 벤치마크 연동은 **fixture 어댑터를 하나 더 만드는 문제**로 격리한다. 외부 벤치마크의 케이스 형식을 `evals/fixtures/<case>/` 구조로 변환하는 계층 하나면 나머지는 그대로 동작한다. 커널도 지표 정의도 바뀌지 않는다.
+Connecting a large external benchmark is isolated as **the problem of building one more fixture adapter**. With one layer that converts the external benchmark's case format into the `evals/fixtures/<case>/` structure, the rest works as is. Neither the kernel nor the metric definitions change.
 
 ```
 harness eval import --benchmark swebench --instances <jsonl> --repos <dir> --out <dir>
 ```
 
-`--instances` 는 SWE-bench 인스턴스의 JSON Lines 파일이고, `--repos` 는 그 인스턴스들이 가리키는 저장소의 **로컬 체크아웃이 있는 디렉토리**다 (`<owner>__<name>` 또는 `<owner>/<name>`). **컨버터는 네트워크를 쓰지 않는다** — 받아오는 것은 사람이 미리 하고 컨버터는 변환만 한다.
+`--instances` is a JSON Lines file of SWE-bench instances, and `--repos` is **the directory holding the local checkouts** of the repositories those instances point to (`<owner>__<name>` or `<owner>/<name>`). **The converter uses no network** — a human fetches beforehand and the converter only converts.
 
-### 필드 대응
+### Field correspondence
 
-| SWE-bench 필드 | fixture |
+| SWE-bench field | fixture |
 |---|---|
-| `instance_id` | 케이스 디렉토리 이름 |
-| `repo` + `base_commit` | `seed/` — 로컬 체크아웃에서 그 커밋의 트리만 꺼낸다. `.git` 은 따라오지 않는다 |
-| `problem_statement` | `seed/specs/<instance_id>/spec.yaml` 의 R-001 |
-| `test_patch` | `grader/test_patch.diff` — **seed 에 넣지 않는다** |
-| `FAIL_TO_PASS` · `PASS_TO_PASS` | `grader/hidden_ac.yaml` 의 acceptance |
+| `instance_id` | the case directory name |
+| `repo` + `base_commit` | `seed/` — only that commit's tree is taken out of the local checkout. `.git` does not come along |
+| `problem_statement` | R-001 of `seed/specs/<instance_id>/spec.yaml` |
+| `test_patch` | `grader/test_patch.diff` — **it is not put in `seed/`** |
+| `FAIL_TO_PASS` · `PASS_TO_PASS` | the acceptance in `grader/hidden_ac.yaml` |
 | `version` · `environment_setup_commit` · `created_at` | `meta.yaml` |
 
-테스트가 hidden 인 것이 이 벤치마크의 본질이고 그것은 위 「hidden grader 의 절대 규칙」과 같은 규칙이다. 그래서 테스트 패치는 `grader/` 에 있고 채점 시점에만 적용된다.
+That the tests are hidden is the essence of this benchmark, and that is the same rule as "The absolute rule of the hidden grader" above. So the test patch lives in `grader/` and is applied only at grading time.
 
 ```yaml
 # grader/hidden_ac.yaml
@@ -254,19 +254,19 @@ acceptance:
   - cmd: ["python", "-m", "pytest", "-q", "<PASS_TO_PASS ...>"]
 ```
 
-- 첫 항목이 red 면 채점 자체가 성립하지 않은 것이므로 red 가 맞다.
-- FAIL_TO_PASS 와 PASS_TO_PASS 를 각각 한 커맨드로 묶는다. 그래야 `grader_success_rate` 가 그 벤치마크 자신의 성공 정의(F2P 전부 통과 ∧ P2P 무회귀)와 같아진다.
-- 테스트 식별자는 pytest node id 형식이다. 자기 러너를 쓰는 저장소는 생성된 `hidden_ac.yaml` 을 사람이 고친다. **컨버터는 변환기이지 벤치마크 실행기가 아니다** — 파이썬 환경 준비는 컨버터의 일이 아니다.
+- If the first item is red, grading did not stand up at all, so red is correct.
+- FAIL_TO_PASS and PASS_TO_PASS are each bundled into one command. That is how `grader_success_rate` comes out the same as that benchmark's own definition of success (all F2P pass ∧ no P2P regression).
+- Test identifiers are in pytest node id form. For a repository that uses its own runner, a human edits the generated `hidden_ac.yaml`. **The converter is a converter, not a benchmark executor** — preparing the Python environment is not the converter's job.
 
-### 만들어지는 task
+### The task that gets created
 
-컨버터는 요구사항 하나(R-001)만 만들고 **`tasks/` 는 쓰지 않는다.** 위 「Fixture」의 규칙대로 하네스가 스펙에서 골격을 만들고, 그 골격에는 **보이는 AC 가 없다.** 채점 기준을 숨기는 것이 이 벤치마크의 본질이므로 하네스가 가진 증거는 diff 와 리뷰뿐이다. 이것은 컨버터의 결함이 아니라 이 벤치마크에서 하네스가 실제로 놓인 조건이며, `escape_rate` 가 그것을 드러낸다.
+The converter creates exactly one requirement (R-001) and **does not write `tasks/`.** By the rule in "Fixture" above, the harness builds the skeleton from the spec, and that skeleton has **no visible AC.** Hiding the grading criteria is the essence of this benchmark, so the evidence the harness holds is the diff and the review, and nothing else. This is not a defect of the converter but the condition the harness is actually placed under in this benchmark, and `escape_rate` exposes it.
 
-`grader/expected.yaml` 은 만들지 않는다 — 외부 벤치마크 fixture 는 능력 eval 용이고 회귀 eval 은 `mock` 으로 돈다.
+`grader/expected.yaml` is not created — an external benchmark fixture is for the capability eval, and the regression eval runs on `mock`.
 
-### 건너뛰기와 멱등성
+### Skipping and idempotence
 
-- 로컬 체크아웃이 없거나 `base_commit` 이 그 체크아웃에 없으면 **그 instance 만 건너뛰고 사유를 보고한다.** 하나가 없다고 전체 변환이 실패하지 않는다.
-- `FAIL_TO_PASS` 와 `PASS_TO_PASS` 가 둘 다 비어 있으면 건너뛴다. 채점 기준 없는 fixture 는 만들지 않는다.
-- 같은 `--out` 에 다시 돌리면 결과가 같다. 이미 있는 케이스 디렉토리는 통째로 다시 쓴다.
-- `seed/.harness/` 는 컨버터가 기본값으로 만든다. 어댑터와 Command Policy 는 fixture 가 선언하는 것이므로 사람이 고쳐서 쓴다.
+- If the local checkout is absent, or `base_commit` is not in that checkout, **only that instance is skipped and the reason is reported.** One missing item does not fail the whole conversion.
+- If `FAIL_TO_PASS` and `PASS_TO_PASS` are both empty it is skipped. A fixture with no grading criteria is not created.
+- Running again into the same `--out` gives the same result. An existing case directory is rewritten wholesale.
+- The converter creates `seed/.harness/` with defaults. The adapter and Command Policy are what a fixture declares, so a human edits them before use.
