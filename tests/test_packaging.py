@@ -82,6 +82,16 @@ def test_wheel_carries_every_module_and_resource(wheel: Path):
     assert not missing, f"휠에 빠진 항목: {missing}"
 
 
+def test_the_license_travels_with_the_installed_package(wheel: Path):
+    """설치본에 라이선스가 없으면 받은 쪽은 무엇을 허락받았는지 알 수 없다."""
+    pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    assert 'license = "MIT"' in pyproject
+    assert "MIT License" in (REPO_ROOT / "LICENSE").read_text(encoding="utf-8")
+
+    names = zipfile.ZipFile(wheel).namelist()
+    assert [n for n in names if n.endswith("LICENSE")], f"휠에 LICENSE 가 없다: {sorted(names)}"
+
+
 def test_installed_wheel_bootstraps_a_repo(wheel: Path, plain_repo: Path, tmp_path: Path):
     site = tmp_path / "site"
     install = subprocess.run(
