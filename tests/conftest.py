@@ -22,6 +22,14 @@ DEFAULT_CONFIG = textwrap.dedent(
 )
 
 
+def pytest_addoption(parser):
+    parser.addoption(
+        "--codex-binary",
+        default=None,
+        help="Opt into the real Codex smoke test using this CLI executable (consumes model usage).",
+    )
+
+
 def git(repo: Path, *args: str) -> None:
     subprocess.run(
         ["git", *args],

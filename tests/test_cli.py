@@ -4,8 +4,11 @@ docs/00, docs/10, docs/12.
 """
 
 import json
+import os
 import pkgutil
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -21,6 +24,20 @@ from harness.policy import CommandPolicy, PolicyVerdict
 from harness.store import Store, fold
 
 RUN_ID = "run-20260827-1432"
+
+
+@pytest.mark.parametrize("encoding", ["ascii", "cp949"])
+def test_cli_init_handles_output_encodings_that_cannot_represent_its_messages(plain_repo, encoding):
+    completed = subprocess.run(
+        [sys.executable, "-m", "harness", "init", "--repo", str(plain_repo)],
+        cwd=Path(__file__).resolve().parents[1],
+        env={**os.environ, "PYTHONIOENCODING": f"{encoding}:strict"},
+        capture_output=True,
+        timeout=30,
+    )
+    assert completed.returncode == 0, completed.stderr.decode(encoding, errors="replace")
+    assert "harness doctor" in completed.stdout.decode(encoding)
+    assert (plain_repo / ".harness" / "config.yaml").is_file()
 
 
 def yaml_block(document: str, heading: str) -> dict:

@@ -130,14 +130,15 @@ adapters:
   codex:
     type: codex_cli
     binary: codex                # the default. An argv prefix list is also allowed
-    extra_args: []
+    extra_args: ["--sandbox", "workspace-write"]
 ```
 
-- Invocation: `<binary> exec --json <extra_args...> -` — the prompt is given on **stdin**.
+- Invocation: `<binary> exec --json <extra_args...> --add-dir <outbox> -` — the prompt is given on **stdin**. The adapter adds the current attempt's outbox as a writable directory because it is outside the workspace (Outbox convention).
+- Set `extra_args: ["--sandbox", "workspace-write"]` for coding tasks. The adapter leaves the sandbox selection to configuration; without that setting, Codex's default read-only sandbox does not allow implementation edits. `--add-dir` does not turn a read-only sandbox into a writable one. See the [official non-interactive guide](https://learn.chatgpt.com/docs/non-interactive-mode).
 - **usage reporting** — attempts to parse each line of stdout as JSON and reads from the **last** line that carries a `usage` object (`input_tokens`/`output_tokens`). Cost is `None` because the vendor does not report it.
 - Tool allowlist and session reuse are not supported.
 
-For both adapters, a binary not found at preflight is `missing_prerequisite`. Every other contract — cwd, outbox, timeout, the env allowlist, artifact paths — is literally the same as `generic_cli`'s, and the conformance suite proves it. An equivalent `generic_cli` configuration always exists — the process contract is the same, and all the vendor adapter knows in addition is **the interpretation of usage's location and shape and (claude only) the allowlist flag**.
+For both adapters, a binary not found at preflight is `missing_prerequisite`. Every other contract — cwd, outbox, timeout, the env allowlist, artifact paths — is literally the same as `generic_cli`'s, and the conformance suite proves it. An equivalent `generic_cli` configuration always exists — the process contract is the same, and all the vendor adapter knows in addition is **the interpretation of usage's location and shape, the outbox access flag, and (claude only) the tool allowlist flag**.
 
 ### vendor-neutrality enforcement rule
 

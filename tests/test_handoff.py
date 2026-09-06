@@ -4,7 +4,9 @@
 """
 
 import json
+from pathlib import Path
 
+import pytest
 import yaml
 
 from harness.dag import load_tasks
@@ -76,6 +78,35 @@ def test_unparsable_json_is_preserved_as_invalid(tmp_path):
     assert artifact.error
     assert artifact.path.name == "claim.invalid.json"
     assert artifact.path.read_text(encoding="utf-8") == "{ this is not json"
+
+
+@pytest.mark.parametrize("kind", [CLAIM, HANDOFF])
+def test_unreadable_artifact_records_a_diagnostic_without_aborting(tmp_path, monkeypatch, kind):
+    raw = outbox(tmp_path, "result.json", VALID_CLAIM)
+    original_read = Path.read_text
+
+    def read_text(path, *args, **kwargs):
+        if path == raw:
+            raise PermissionError("artifact access denied")
+        return original_read(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+    artifact = normalize(kind, raw, tmp_path / "promoted")
+    assert not artifact.valid and artifact.data is None
+    assert "artifact access denied" in artifact.error
+    diagnostic = json.loads(artifact.path.read_text(encoding="utf-8"))
+    assert diagnostic["source_path"] == str(raw)
+    assert diagnostic["artifact_read_error"] == "PermissionError"
+
+
+@pytest.mark.parametrize("kind", [CLAIM, HANDOFF])
+def test_non_utf8_artifact_is_invalid_without_changing_the_original(tmp_path, kind):
+    raw = outbox(tmp_path, "result.json", "placeholder")
+    raw.write_bytes(b"\xff\xfeinvalid")
+    artifact = normalize(kind, raw, tmp_path / "promoted")
+    assert not artifact.valid and artifact.error
+    assert artifact.path.name == f"{kind}.invalid.json"
+    assert raw.read_bytes() == b"\xff\xfeinvalid"
 
 
 def test_a_schema_violation_is_preserved_as_invalid(tmp_path):

@@ -109,6 +109,12 @@ CONTROL_PLANE_FILES = {
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Windows pipes may use cp949 (or ASCII). Keep the caller's encoding, but
+    # escape unsupported characters instead of crashing after a successful action.
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(errors="backslashreplace")
     parser = _build_parser()
     try:
         args = parser.parse_args(argv)

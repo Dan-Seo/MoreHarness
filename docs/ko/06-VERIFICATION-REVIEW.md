@@ -201,6 +201,11 @@ outbox 의 raw claim / raw handoff 발견
 
 > **Invalid claim is an invalid report, not automatically an invalid implementation.**
 
+존재하는 산출물을 읽거나 UTF-8로 디코딩할 수 없으면, 정규화 단계는 이를 승격하거나
+run을 중단하지 않고 원본 경로와 읽기 오류를 `*.invalid.json`에 진단 정보로 기록한다.
+원본은 건드리지 않는다. 다른 invalid 보고와 마찬가지로 판정이나 required handoff
+게이트에 쓸 수 있는 payload는 없는 것으로 취급한다.
+
 정규화는 판정이 아니다. 여기서 verdict가 결정되는 경로는 없다.
 
 ---

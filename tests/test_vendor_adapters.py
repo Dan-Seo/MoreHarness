@@ -1,6 +1,6 @@
 """docs/04 의 벤더 어댑터 — `generic_cli` 위의 얇은 구성.
 
-벤더 어댑터가 더 아는 것은 **usage 의 위치와 (claude 만) allowlist 플래그**뿐이다.
+벤더 어댑터가 더 아는 것은 usage, outbox 접근, (claude 만) 도구 allowlist 플래그다.
 그 밖의 계약은 `generic_cli` 와 문자 그대로 같으며 conformance 스위트로 증명한다.
 """
 
@@ -130,14 +130,43 @@ def test_claude_capabilities():
 
 
 def test_codex_builds_the_documented_argv_and_feeds_stdin(tmp_path):
-    """docs/04 — `<binary> exec --json <extra_args...> -`, 프롬프트는 stdin."""
+    """docs/04 — outbox 접근을 허용하고, 프롬프트는 stdin으로 준다."""
     adapter = CodexCliAdapter(
-        "codex", {"binary": script(tmp_path, CODEX_ECHO), "extra_args": ["--sandbox", "off"]}
+        "codex",
+        {"binary": script(tmp_path, CODEX_ECHO), "extra_args": ["--sandbox", "workspace-write"]},
     )
     req = request(tmp_path, prompt="hi")
     adapter.execute(req)
-    assert argv_seen(req) == ["exec", "--json", "--sandbox", "off", "-"]
+    assert argv_seen(req) == [
+        "exec", "--json", "--sandbox", "workspace-write", "--add-dir", str(req.outbox), "-"
+    ]
     assert (req.outbox / "stdin.txt").read_text(encoding="utf-8") == "hi"
+
+
+def test_codex_uses_each_requests_outbox_without_changing_sandbox_selection(tmp_path):
+    adapter = CodexCliAdapter("codex", {"binary": script(tmp_path, CODEX_ECHO)})
+    for name in ("first attempt", "second & attempt"):
+        req = request(tmp_path / name)
+        result = adapter.execute(req)
+        assert result.runtime_failure is None
+        assert argv_seen(req) == ["exec", "--json", "--add-dir", str(req.outbox), "-"]
+
+
+def test_codex_process_contract_is_expressible_as_generic_cli(tmp_path):
+    binary = script(tmp_path, CODEX_ECHO)
+    options = ["--sandbox", "workspace-write"]
+    vendor = CodexCliAdapter("codex", {"binary": binary, "extra_args": options})
+    generic = GenericCliAdapter("generic", {
+        "command": [*binary, "exec", "--json", *options, "--add-dir", "{outbox}", "-"],
+        "prompt_delivery": "stdin",
+    })
+    req = request(tmp_path, prompt="literal prompt: $x; {outbox}")
+    vendor_result = vendor.execute(req)
+    vendor_argv = argv_seen(req)
+    generic_result = generic.execute(req)
+    assert generic_result.exit_code == vendor_result.exit_code == 0
+    assert argv_seen(req) == vendor_argv
+    assert (req.outbox / "stdin.txt").read_text(encoding="utf-8") == req.prompt
 
 
 def test_codex_reads_usage_from_the_last_matching_json_line(tmp_path):

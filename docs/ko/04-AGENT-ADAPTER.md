@@ -132,14 +132,15 @@ adapters:
   codex:
     type: codex_cli
     binary: codex                # 기본값. argv 접두 리스트도 허용한다
-    extra_args: []
+    extra_args: ["--sandbox", "workspace-write"]
 ```
 
-- 구동: `<binary> exec --json <extra_args...> -` — 프롬프트는 **stdin**으로 준다.
+- 구동: `<binary> exec --json <extra_args...> --add-dir <outbox> -` — 프롬프트는 **stdin**으로 준다. outbox는 워크스페이스 밖이므로(Outbox 규약), 어댑터가 현재 attempt의 outbox를 쓰기 허용 디렉토리로 추가한다.
+- 코드 구현에는 `extra_args: ["--sandbox", "workspace-write"]`를 설정한다. 어댑터는 sandbox 선택을 설정에 맡긴다. 이 설정이 없으면 Codex의 기본 read-only sandbox에서는 코드를 수정할 수 없다. `--add-dir`만으로 read-only sandbox가 쓰기 가능해지지는 않는다. [공식 비대화형 실행 안내](https://learn.chatgpt.com/docs/non-interactive-mode)를 참고한다.
 - **usage 보고** — stdout 의 각 라인을 JSON 으로 시도 파싱해, `usage` 객체(`input_tokens`/`output_tokens`)를 담은 **마지막** 라인에서 읽는다. cost 는 벤더가 보고하지 않으므로 `None` 이다.
 - 도구 화이트리스트·세션 재사용은 지원하지 않는다.
 
-두 어댑터 모두 preflight 에서 binary 미발견은 `missing_prerequisite` 다. 그 외의 계약 — cwd, outbox, timeout, env 화이트리스트, 아티팩트 경로 — 은 `generic_cli` 와 문자 그대로 같으며 conformance 스위트로 증명한다. 동등한 `generic_cli` 설정이 항상 존재한다 — 프로세스 계약은 같고, 벤더 어댑터가 더 아는 것은 **usage 의 위치·형태 해석과 (claude 만) allowlist 플래그**뿐이다.
+두 어댑터 모두 preflight 에서 binary 미발견은 `missing_prerequisite` 다. 그 외의 계약 — cwd, outbox, timeout, env 화이트리스트, 아티팩트 경로 — 은 `generic_cli` 와 문자 그대로 같으며 conformance 스위트로 증명한다. 동등한 `generic_cli` 설정이 항상 존재한다 — 프로세스 계약은 같고, 벤더 어댑터가 더 아는 것은 **usage 의 위치·형태 해석, outbox 접근 플래그, (claude 만) 도구 allowlist 플래그**뿐이다.
 
 ### vendor-neutrality 강제 규칙
 

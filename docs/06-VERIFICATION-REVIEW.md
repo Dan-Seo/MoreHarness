@@ -199,6 +199,11 @@ raw claim / raw handoff found in the outbox
 
 > **Invalid claim is an invalid report, not automatically an invalid implementation.**
 
+If a present artifact cannot be read or decoded as UTF-8, normalization records a
+diagnostic (source path and read error) in `*.invalid.json` instead of promoting
+it or aborting the run. The original remains untouched. It has no usable payload
+for adjudication or the required handoff gate, just like other invalid reports.
+
 Normalization is not adjudication. There is no path by which a verdict is decided here.
 
 ---

@@ -12,18 +12,21 @@ agent는 코드를 쓰고 자기가 무엇을 했는지 보고한다. 하네스�
 
 ## 상태
 
-`0.2.0`. 마일스톤 M0~M9가 전부 구현되어 있고 테스트 637개가 통과한다. 옵션 레이어를 전부
+`0.2.0`. 마일스톤 M0~M9가 전부 구현되어 있고 오프라인 테스트로 검증한다. 옵션 레이어를 전부
 제거해도 커널이 동작한다는 것은 `tests/test_kernel_only.py`가 서브프로세스로 강제한다.
 
-실사용으로 확인된 범위는 아직 좁다 — 어댑터는 `claude` CLI 하나, 능력 eval fixture는 하나
-(`evals/capability/slugify`), 프로파일은 `worktree` 하나다. 그 밖은 테스트로만 검증되어 있다.
+기록된 능력 eval의 범위는 `claude` CLI, fixture 하나(`evals/capability/slugify`),
+`worktree` 프로파일이다. Codex에는 어댑터 계약 테스트와 아래 설명하는 선택 실행 방식의
+실제 CLI 스모크 테스트가 있다. 스모크 테스트는 능력 벤치마크가 아니다.
+[기록된 Codex 스모크 테스트](evals/codex-smoke-report.md)는 Windows의 Codex CLI
+0.153.4에서 통과했다.
 
 ## 요구사항
 
 - Python 3.11+
 - git
 - 런타임 의존성: `PyYAML`, `jsonschema` (그 외는 stdlib)
-- agent를 실제로 돌리려면 그 벤더의 CLI (예: `claude`). 어댑터가 서브프로세스로만 호출한다.
+- agent를 실제로 돌리려면 설치 및 인증된 벤더 CLI(`claude` 또는 `codex`). 어댑터가 서브프로세스로만 호출한다.
 
 ## 설치
 
@@ -70,6 +73,29 @@ adapters:
 
 agent_timeout_s: 900
 ```
+
+Codex를 사용하려면 어댑터 설정을 다음과 같이 바꾼다.
+
+```yaml
+defaults:
+  adapter: codex
+
+adapters:
+  codex:
+    type: codex_cli
+    binary: codex
+    extra_args: ["--sandbox", "workspace-write"]
+
+agent_timeout_s: 900
+```
+
+`harness init`이 만든 나머지 설정은 유지한다. 먼저 `codex --version`과
+`codex login status`를 확인한 다음, 대상 프로젝트에서 `harness doctor`로 어댑터 탐색을
+확인한다. Windows에서 CLI가 PATH에 없으면 `binary`에 네이티브 `codex.exe`의 절대 경로를
+지정할 수 있다. 어댑터는 프롬프트를 stdin으로 주고 현재 outbox를 `--add-dir`로 추가한다.
+계약은 [`docs/04-AGENT-ADAPTER.md`](docs/ko/04-AGENT-ADAPTER.md#codex_cli)에 있다.
+코드 수정을 허용하려면 `workspace-write` 설정이 필요하다. Codex 비대화형 실행의 기본값은
+read-only다. [공식 Codex 안내](https://learn.chatgpt.com/docs/non-interactive-mode)를 참고한다.
 
 같은 파일의 `command_policy`가 **하네스가 실행하는 모든 커맨드**를 통과시킨다. 기본값은
 fail-closed이고, 무엇이 자동 실행 승인되었는지는 거기 보이는 것이 전부다. 쓰기 전에 읽고
@@ -131,12 +157,36 @@ harness eval run --fixtures evals/capability --arms raw,harness-full --repeat 3
 
 ## 개발
 
-```
-pytest
+```bash
+python -m pip install -e ".[dev]"
+python -m pytest -q
 ```
 
-기여 전에 [`CLAUDE.md`](CLAUDE.md)를 읽는다 — 계약을 바꾸려면 canonical 문서를 먼저 고치고,
-테스트를 먼저 쓴다.
+기여 전에 [`AGENTS.md`](AGENTS.md)를 읽는다. Codex와 Claude Code가 함께 쓰는 설치,
+아키텍처, 검증 지침이며 [`CLAUDE.md`](CLAUDE.md)에서 불러온다. 계약을 바꾸려면
+canonical 문서를 먼저 고치고 테스트를 먼저 쓴다.
+
+오프라인 테스트에서는 실제 Codex 테스트를 건너뛴다. 인증된 CLI로 실행하려면 다음 명령을
+쓴다. 이 테스트는 모델 사용량을 소비한다.
+
+```bash
+python -m pytest tests/test_codex_live.py -q -s --codex-binary codex
+```
+
+PowerShell에서는 네이티브 실행 파일 경로를 직접 지정할 수 있다.
+
+```powershell
+python -m pytest tests/test_codex_live.py -q -s --codex-binary 'C:/path/to/codex.exe'
+```
+
+테스트는 임시 Git 저장소를 만들고 Codex가 그 저장소의 `AGENTS.md`를 따르는지,
+허용된 파일만 수정하는지, 외부 outbox에 유효한 claim과 handoff를 쓰는지 확인한다.
+하네스가 직접 실행한 acceptance의 red→green 결과로 `verified`를 받는지도 검사한다.
+시도는 한 번이며 agent 타임아웃은 180초다. 실행 기록은
+`<system temp>/harness-codex-smoke-<id>/`에 남고 journal과 transcript를 확인할 수 있도록
+run 경로를 출력한다. Windows 네이티브 sandbox가 접근할 수 있도록 pytest 전용 비공개
+임시 폴더 대신 일반 시스템 임시 폴더를 사용한다.
+이 체크아웃의 브랜치와 기존 능력 eval 기록은 바꾸지 않는다.
 
 ## 라이선스
 

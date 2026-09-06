@@ -77,10 +77,23 @@ def normalize(kind: str, raw_path: Path | None, dest_dir: Path | str) -> Artifac
 
     agent 산출물이 `.harness/` 에 직접 들어가는 경로는 없다. 원본은 건드리지 않는다.
     """
-    if raw_path is None or not Path(raw_path).is_file():
+    if raw_path is None:
         return Artifact(kind, None, None, None)
 
-    raw = Path(raw_path).read_text(encoding="utf-8")
+    try:
+        if not Path(raw_path).is_file():
+            return Artifact(kind, None, None, None)
+        raw = Path(raw_path).read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        # An unreadable optional report must not abort implementation verification.
+        # Preserve a diagnostic, not invented source content; leave the source alone.
+        error = f"아티팩트를 읽을 수 없다: {exc}"
+        diagnostic = json.dumps({
+            "source_path": str(raw_path),
+            "artifact_read_error": type(exc).__name__,
+            "detail": str(exc),
+        }, ensure_ascii=False)
+        return _preserve(kind, dest_dir, diagnostic, error)
     try:
         data = json.loads(raw)
     except ValueError as exc:

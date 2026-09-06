@@ -1,8 +1,8 @@
 """codex CLI 벤더 어댑터. docs/04 가 canonical 이다.
 
 `generic_cli` 위의 얇은 구성이다. 더 아는 것은 **usage 의 위치** — stdout 의 JSON
-라인들 중 `usage` 객체를 담은 마지막 라인 — 뿐이다. cost 는 벤더가 보고하지 않으므로
-`None` 이다.
+라인들 중 `usage` 객체를 담은 마지막 라인 — 와 outbox 접근 플래그다.
+cost 는 벤더가 보고하지 않으므로 `None` 이다.
 """
 
 from __future__ import annotations
@@ -24,6 +24,8 @@ class CodexCliAdapter(GenericCliAdapter):
             "exec",
             "--json",
             *(options.get("extra_args") or ()),
+            "--add-dir",
+            "{outbox}",  # 결과 디렉토리는 워크스페이스 밖이다 (docs/04)
             "-",  # 프롬프트는 stdin 이다
         ]
         super().__init__(
