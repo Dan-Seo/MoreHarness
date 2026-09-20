@@ -21,6 +21,7 @@ import harness.spec
 
 PACKAGE_DIR = Path(harness.__file__).resolve().parent
 REPO_ROOT = PACKAGE_DIR.parent
+PYTHON_ENV = {**os.environ, "PYTHONUTF8": "1"}
 
 REQUIRED_ENTRIES = (
     "harness/cli.py",
@@ -50,6 +51,8 @@ def wheel(tmp_path_factory) -> Path:
         ],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        env=PYTHON_ENV,
     )
     assert build.returncode == 0, build.stderr[-2000:]
     wheels = sorted(out.glob("harness_framework-*.whl"))
@@ -98,6 +101,8 @@ def test_installed_wheel_bootstraps_a_repo(wheel: Path, plain_repo: Path, tmp_pa
         [sys.executable, "-m", "pip", "install", "--no-deps", "--target", str(site), str(wheel)],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        env=PYTHON_ENV,
     )
     assert install.returncode == 0, install.stderr[-2000:]
 
@@ -105,9 +110,10 @@ def test_installed_wheel_bootstraps_a_repo(wheel: Path, plain_repo: Path, tmp_pa
     done = subprocess.run(
         [sys.executable, "-m", "harness", "init", "--repo", str(plain_repo)],
         cwd=str(tmp_path),
-        env={**os.environ, "PYTHONPATH": str(site)},
+        env={**PYTHON_ENV, "PYTHONPATH": str(site)},
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     assert done.returncode == 0, done.stderr[-2000:]
     assert (plain_repo / ".harness" / "config.yaml").is_file()
