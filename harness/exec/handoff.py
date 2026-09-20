@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from harness.models import Task
+from harness.redact import Redactor
 from harness.schemas import first_error
 
 CLAIM = "claim"
@@ -72,11 +73,18 @@ class HandoffGate:
         return {"required": list(self.required), "present": list(self.present)}
 
 
-def normalize(kind: str, raw_path: Path | None, dest_dir: Path | str) -> Artifact:
+def normalize(
+    kind: str,
+    raw_path: Path | None,
+    dest_dir: Path | str,
+    *,
+    redactor: Redactor | None = None,
+) -> Artifact:
     """outbox 의 raw 아티팩트를 검증해 control-plane 으로 승격한다.
 
     agent 산출물이 `.harness/` 에 직접 들어가는 경로는 없다. 원본은 건드리지 않는다.
     """
+    redactor = redactor or Redactor()
     if raw_path is None:
         return Artifact(kind, None, None, None)
 
@@ -93,18 +101,25 @@ def normalize(kind: str, raw_path: Path | None, dest_dir: Path | str) -> Artifac
             "artifact_read_error": type(exc).__name__,
             "detail": str(exc),
         }, ensure_ascii=False)
-        return _preserve(kind, dest_dir, diagnostic, error)
+        return _preserve(kind, dest_dir, redactor.text(diagnostic), redactor.text(error))
     try:
         data = json.loads(raw)
     except ValueError as exc:
+        raw = redactor.text(raw)
         return _preserve(kind, dest_dir, raw, f"JSON 이 아니다: {exc}")
 
     error = first_error(kind, data)
     if error:
-        return _preserve(kind, dest_dir, raw, error)
+        safe_raw = json.dumps(redactor.data(data), ensure_ascii=False) + "\n"
+        return _preserve(kind, dest_dir, safe_raw, f"{kind} schema validation failed")
 
-    path = _write(dest_dir, f"{kind}.json", raw)
-    return Artifact(kind, data, path, None)
+    safe_data = redactor.data(data)
+    path = _write(
+        dest_dir,
+        f"{kind}.json",
+        json.dumps(safe_data, ensure_ascii=False) + "\n",
+    )
+    return Artifact(kind, safe_data, path, None)
 
 
 def gate(task: Task, handoff: Artifact) -> HandoffGate:

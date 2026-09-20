@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
@@ -110,6 +109,8 @@ class ReviewStage:
     ) -> Reviewed:
         for wave in range(1, self.config.max_review_waves + 1):
             findings = self._wave(runner, task, attempt, workspace, wave, reviewers, evidence.diff)
+            if isinstance(findings, AttemptOutcome):
+                return Reviewed(findings, evidence)
             if findings is None:
                 # 리뷰가 성립하지 않았다 — 침묵은 통과가 아니다 (docs/06)
                 return Reviewed(AttemptOutcome(Verdict.ERROR, "review_failed"), evidence)
@@ -179,7 +180,7 @@ class ReviewStage:
         wave: int,
         reviewers: Sequence[str],
         diff: verify_module.DiffObservation,
-    ) -> list[Finding] | None:
+    ) -> list[Finding] | AttemptOutcome | None:
         review_dir = runner.store.run_dir / "tasks" / task.id / "review" / f"wave-{wave}"
         review_dir.mkdir(parents=True, exist_ok=True)
 
@@ -187,15 +188,28 @@ class ReviewStage:
         for name in reviewers:
             self._guard(runner)
             outbox = workspace.root / "outbox" / f"attempt-{attempt}-review-{wave}-{name}"
-            runner._dispatch(
-                task,
-                attempt,
-                workspace,
-                self._review_prompt(task, workspace, name, diff),
-                outbox=outbox,
-                adapter_name=self._reviewer_adapter(name),
+            try:
+                before_content = verify_module.workspace_content(
+                    workspace.path, runner._harness_paths(workspace.path)
+                )
+                runner._dispatch(
+                    task,
+                    attempt,
+                    workspace,
+                    self._review_prompt(task, workspace, name, diff),
+                    outbox=outbox,
+                    adapter_name=self._reviewer_adapter(name),
+                )
+                after_content = verify_module.workspace_content(
+                    workspace.path, runner._harness_paths(workspace.path)
+                )
+            except OSError:
+                return AttemptOutcome(Verdict.ERROR, "workspace_snapshot_failed")
+            if before_content != after_content:
+                return AttemptOutcome(Verdict.REJECTED, "review_workspace_mutated")
+            findings = self._normalize(
+                task, outbox / "findings.json", review_dir, name, runner.redactor
             )
-            findings = self._normalize(task, outbox / "findings.json", review_dir, name)
             if findings is None:
                 return None
             for finding in findings:
@@ -220,19 +234,37 @@ class ReviewStage:
         return list(merged.values())
 
     def _normalize(
-        self, task: Task, raw_path: Path, review_dir: Path, name: str
+        self, task: Task, raw_path: Path, review_dir: Path, name: str, redactor
     ) -> list[Finding] | None:
         """findings 파일을 보존하고 검증한다. 없거나 깨졌으면 리뷰 불성립이다."""
         if not raw_path.is_file():
             return None
         try:
-            data = json.loads(raw_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            data = None
-        if data is None or first_error("findings", data):
-            shutil.copyfile(raw_path, review_dir / f"{name}.invalid.json")
+            raw = raw_path.read_text(encoding="utf-8")
+        except OSError:
             return None
-        shutil.copyfile(raw_path, review_dir / f"{name}.json")
+        try:
+            data = json.loads(raw)
+        except ValueError:
+            (review_dir / f"{name}.invalid.json").write_text(
+                redactor.text(raw), encoding="utf-8"
+            )
+            return None
+        if data is None:
+            (review_dir / f"{name}.invalid.json").write_text(
+                redactor.text(raw), encoding="utf-8"
+            )
+            return None
+        if first_error("findings", data):
+            (review_dir / f"{name}.invalid.json").write_text(
+                json.dumps(redactor.data(data), ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+            return None
+        safe_data = redactor.data(data)
+        (review_dir / f"{name}.json").write_text(
+            json.dumps(safe_data, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
         return [
             Finding(
                 reviewer=name,
@@ -242,7 +274,7 @@ class ReviewStage:
                 line=entry.get("line"),
                 message=entry["message"],
             )
-            for entry in data["findings"]
+            for entry in safe_data["findings"]
         ]
 
     def _reviewer_adapter(self, name: str) -> str | None:

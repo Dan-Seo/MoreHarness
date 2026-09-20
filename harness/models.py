@@ -128,9 +128,13 @@ class Debt:
     debt_id: str
     cmd: tuple[str, ...]
     origin_task: str | None
+    cmd_identity: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {"debt_id": self.debt_id, "cmd": list(self.cmd), "origin_task": self.origin_task}
+        data = {"debt_id": self.debt_id, "cmd": list(self.cmd), "origin_task": self.origin_task}
+        if self.cmd_identity is not None:
+            data["cmd_identity"] = self.cmd_identity
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Debt:
@@ -138,6 +142,7 @@ class Debt:
             debt_id=data["debt_id"],
             cmd=tuple(data.get("cmd") or ()),
             origin_task=data.get("origin_task"),
+            cmd_identity=data.get("cmd_identity"),
         )
 
 

@@ -4,14 +4,17 @@ M6 완료 기준 셋을 여기서 증명한다 (docs/12) —
 미커버 요구사항 → converge 실패 · 미해소 debt → ship 실패 · deny 커맨드 → analyze 실패.
 """
 
+import io
 import sys
 
+import pytest
 import yaml
+from conftest import git
 from test_runner import ScriptedAdapter, commit, configure, exits, task_of, write_task
 
 from harness.cli import main
 from harness.config import load
-from harness.converge import converge, ship
+from harness.converge import _orphans, converge, ship
 from harness.dag import Dag, load_tasks
 from harness.events import EventType
 from harness.exec.runner import run_dag
@@ -59,6 +62,23 @@ def run1(repo, config, adapter):
     )
 
 
+def converge_ready(repo, profile="worktree"):
+    config = configure(repo, profile=profile)
+    spec_path = write_spec(repo, [REQ1])
+    write_task(
+        repo,
+        "T-001",
+        satisfies=["R-001"],
+        allowed_paths=["src/**"],
+        acceptance=[proves("src/a.py")],
+        spec_hash=spec_hash(spec_path),
+    )
+    run1(repo, config, ScriptedAdapter([{"files": {"src/a.py": "1\n"}}]))
+    report = converge(repo, config, "run-1")
+    assert report.ok, report.failures
+    return config
+
+
 # --------------------------------------------------------------------------- 저작 단계
 
 
@@ -71,7 +91,8 @@ def test_spec_scaffolds_and_refuses_overwrite(repo, capsys):
     assert main(["spec", "user api", "--repo", str(repo)]) == 1  # 덮어쓰지 않는다
 
 
-def test_clarify_lists_then_passes_after_resolution(repo, capsys):
+def test_clarify_lists_then_passes_after_resolution(repo, capsys, monkeypatch):
+    monkeypatch.setattr(sys, "stdin", io.StringIO())
     write_spec(repo, [REQ1], open_qs=["[NEEDS CLARIFICATION] 삭제는 소프트인가"])
     assert main(["clarify", "--repo", str(repo)]) == 1  # 캡처된 stdin 은 TTY 가 아니다
 
@@ -320,6 +341,154 @@ def test_ship_requires_a_fresh_converge(repo):
 
     assert not shipped.ok
     assert "converge" in shipped.detail
+
+
+def test_ship_rejects_spec_drift_after_converge(repo):
+    config = converge_ready(repo)
+    write_spec(repo, [{"id": "R-001", "statement": "changed"}])
+
+    shipped = ship(repo, config, "run-1")
+
+    assert not shipped.ok
+    assert "converge" in shipped.detail
+
+
+def test_ship_rejects_task_drift_after_converge(repo):
+    config = converge_ready(repo)
+    write_task(
+        repo,
+        "T-001",
+        satisfies=["R-001"],
+        allowed_paths=["src/**", "docs/**"],
+        acceptance=[proves("src/a.py")],
+        spec_hash=spec_hash(repo / "specs" / "feature" / "spec.yaml"),
+    )
+
+    shipped = ship(repo, config, "run-1")
+
+    assert not shipped.ok
+    assert "converge" in shipped.detail
+
+
+def test_ship_rejects_config_drift_after_converge(repo):
+    config = converge_ready(repo)
+    changed = configure(
+        repo,
+        profile="worktree",
+        health_commands=[[PY, "-c", "raise SystemExit(1)"]],
+    )
+
+    shipped = ship(repo, changed, "run-1")
+
+    assert not shipped.ok
+    assert "converge" in shipped.detail
+
+
+def test_ship_rejects_config_file_drift_with_the_original_config_object(repo):
+    config = converge_ready(repo)
+    config.path.write_text(
+        config.path.read_text(encoding="utf-8") + "\n# changed after converge\n",
+        encoding="utf-8",
+    )
+
+    shipped = ship(repo, config, "run-1")
+
+    assert not shipped.ok
+    assert "converge" in shipped.detail
+
+
+@pytest.mark.parametrize("drift", ["tracked", "untracked"])
+def test_ship_rejects_safe_workspace_drift(repo, drift):
+    config = converge_ready(repo, profile="safe")
+    if drift == "tracked":
+        (repo / "README.md").write_text("changed\n", encoding="utf-8")
+    else:
+        (repo / "new-untracked.txt").write_text("changed\n", encoding="utf-8")
+
+    shipped = ship(repo, config, "run-1")
+
+    assert not shipped.ok
+    assert "converge" in shipped.detail
+
+
+def test_ship_accepts_unchanged_safe_workspace(repo):
+    config = converge_ready(repo, profile="safe")
+
+    shipped = ship(repo, config, "run-1")
+
+    assert shipped.ok
+
+
+def test_ship_rejects_a_moved_user_head_after_converge(repo):
+    config = converge_ready(repo)
+    commit(repo)
+    (repo / "README.md").write_text("moved\n", encoding="utf-8")
+    commit(repo)
+
+    shipped = ship(repo, config, "run-1")
+
+    assert not shipped.ok
+    assert "converge" in shipped.detail
+
+
+def test_ship_rejects_a_late_verdict_change_with_the_same_integration_tip(repo):
+    config = converge_ready(repo)
+    store = Store(repo / ".harness" / "runs" / "run-1")
+    store.append(
+        EventType.VERDICT_ASSIGNED,
+        {"verdict": "rejected", "attempt": 2, "reason": "late", "next_state": "human_required"},
+        task_id="T-001",
+        attempt=2,
+    )
+
+    shipped = ship(repo, config, "run-1")
+
+    assert not shipped.ok
+    assert "converge" in shipped.detail
+
+
+def test_orphan_rename_reports_both_path_endpoints(repo, tmp_path):
+    source = repo / "src" / "old.py"
+    source.parent.mkdir()
+    source.write_text("old\n", encoding="utf-8")
+    write_task(repo, "T-001", allowed_paths=["other/**"], acceptance=[green()])
+    commit(repo)
+
+    integration = "harness/run-1/integration"
+    git(repo, "branch", integration)
+    integration_worktree = tmp_path / "integration-worktree"
+    git(repo, "worktree", "add", str(integration_worktree), integration)
+    try:
+        (integration_worktree / "other").mkdir()
+        git(integration_worktree, "mv", "src/old.py", "other/new.py")
+        git(
+            integration_worktree,
+            "-c",
+            "user.name=harness",
+            "-c",
+            "user.email=harness@localhost",
+            "commit",
+            "-q",
+            "-m",
+            "rename",
+        )
+    finally:
+        git(repo, "worktree", "remove", "--force", str(integration_worktree))
+
+    store = Store(repo / ".harness" / "runs" / "run-1")
+    store.append(
+        EventType.RUN_STARTED,
+        {"manifest": {"task_ids": ["T-001"]}, "profile": "worktree", "adapter": "mock", "max_parallel": 1},
+    )
+    store.append(
+        EventType.VERDICT_ASSIGNED,
+        {"verdict": "verified", "attempt": 1, "reason": None, "next_state": "done"},
+        task_id="T-001",
+        attempt=1,
+    )
+    failures = _orphans(repo, "harness/run-1/integration", load_tasks(repo), store)
+
+    assert failures == ["고아 diff: src/old.py"]
 
 
 def test_the_cli_converges_and_ships(repo):

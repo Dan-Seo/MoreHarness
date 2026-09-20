@@ -57,9 +57,12 @@
 
 - **env 화이트리스트** — `AgentRequest.env`에 명시된 변수만 자식 프로세스에 전달한다. 전체 환경을 상속하지 않는다.
 - **`env_var` precondition은 존재 여부만 검사한다.** 값을 읽지도 기록하지도 않는다. `precondition_checked` 이벤트에 값이 들어가는 경로가 없다.
-- **마스킹** — 프롬프트, 트랜스크립트, journal에 쓰기 전에 알려진 비밀 패턴을 마스킹한다.
-- **outbox 스크럽** — outbox 산출물을 `.harness/`로 승격하기 전에 같은 마스킹을 적용한다.
-- 비밀 패턴은 config로 확장 가능하다.
+- **마스킹 경계** — `Redactor`는 어댑터에 보내거나 `prompt.md`로 저장하기 전에 프롬프트를, 트랜스크립트를 쓰기 전에 어댑터 stdout/stderr를, journal append/fsync와 state projection 전에 event payload를 마스킹한다.
+- **승격된 outbox 스크럽** — handoff, claim, review 산출물은 `.harness/`로 승격되기 전에 파싱되고 마스킹된다. 스키마에 맞지 않는 파싱 가능한 JSON도 같은 data redactor를 거쳐 다시 직렬화한다.
+- 기본 범위는 PEM private-key 블록, bearer/basic credential, 일반적인 API token 형태, credential처럼 보이는 대입식, credential을 포함한 URL, 그리고 `*_SECRET`, `*_TOKEN`, `*_PASSWORD`, `*_API_KEY`, `*_PRIVATE_KEY`처럼 의미가 분명한 접미사를 가진 환경 변수의 비어 있지 않은 값이다. `MAX_TOKENS`는 이런 접미사가 아니다.
+- 프로젝트는 정규식 목록인 `secret_patterns`로 범위를 추가할 수 있다. 설정을 읽을 때 패턴을 컴파일하며 잘못된 패턴이면 설정을 거부한다.
+- command payload는 표시되는 `cmd`를 마스킹하기 전에 raw argv에서 `policy.approval_hash`로 계산한 신뢰된 `cmd_identity`를 보존한다. 따라서 마스킹된 command를 실행 identity로 취급하지 않고 replay matching을 유지하며, 메모리 안의 command 실행과 승인은 raw argv를 계속 사용한다.
+- 이는 하네스가 소유한 persistence 경계다. agent가 소유한 raw outbox 파일은 다시 쓰지 않으며, recognizer와 패턴이 모든 형태의 비밀 또는 외부 로그를 찾아낸다고 보장하지 않는다.
 
 ---
 

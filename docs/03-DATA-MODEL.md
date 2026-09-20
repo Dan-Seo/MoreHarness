@@ -315,6 +315,12 @@ baseline can be restored in its original declaration order on resume. If an olde
 does not have the field, restore it from the occurrence order of `cmd` and
 `expect_fail_before`.
 
+Events containing `cmd` also retain `cmd_identity`, the original argv's approval hash
+(06), before secret masking (09). Resume and debt matching use that identity rather than
+the masked display command; older events without it use their original `cmd`.
+The debt projection preserves `cmd_identity` when present. Execution still uses the
+current task's original argv, never the masked journal text.
+
 `tdd_phase_completed`'s `phase` is `test_author | red_gate | implementation`, and `base` is
 that phase's diff observation base (a commit sha). It is recorded after the phase has
 actually ended, and only `ok: true` is used as resume evidence. **It is an evidence event

@@ -28,6 +28,16 @@ def pytest_addoption(parser):
         default=None,
         help="Opt into the real Codex smoke test using this CLI executable (consumes model usage).",
     )
+    parser.addoption(
+        "--codex-model",
+        default="gpt-5.6-luna",
+        help="Model for the real Codex smoke test (default: gpt-5.6-luna).",
+    )
+    parser.addoption(
+        "--codex-reasoning-effort",
+        default="max",
+        help="Reasoning effort for the real Codex smoke test (default: max).",
+    )
 
 
 def git(repo: Path, *args: str) -> None:

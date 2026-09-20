@@ -5,6 +5,7 @@
 
 import inspect
 import re
+import stat
 import sys
 
 import pytest
@@ -22,6 +23,7 @@ from harness.exec.verify import (
     observe_diff,
     run_baseline,
     run_post,
+    workspace_content,
 )
 from harness.models import State, Verdict
 from harness.policy import CommandPolicy
@@ -226,6 +228,77 @@ def test_diff_stat_counts_what_the_harness_measured(repo):
 def test_the_diff_is_reported_as_the_harness_owned_half_of_task_output(repo):
     """docs/03 — changed_files·created_files·diff_stat 는 하네스 산출이며 항상 존재한다."""
     assert set(observe_diff(repo).to_output()) == {"changed_files", "created_files", "diff_stat"}
+
+
+def test_an_uncommitted_rename_reports_both_source_and_destination(repo):
+    """rename 은 source 삭제도 path scope 판정에 포함해야 한다."""
+    source = "old source → [odd].py"
+    destination = "new destination → [odd].py"
+    (repo / source).write_text("x\n", encoding="utf-8")
+    git(repo, "add", "-A")
+    git(repo, "-c", "user.name=a", "-c", "user.email=a@b", "commit", "-q", "-m", "source")
+    git(repo, "mv", source, destination)
+
+    diff = observe_diff(repo)
+    paths = set(diff.changed_files) | set(diff.created_files)
+
+    assert {source, destination} <= paths
+
+
+def test_an_unstaged_rename_reports_both_source_and_destination(repo):
+    source = "unstaged source [odd].py"
+    destination = "unstaged destination [odd].py"
+    (repo / source).write_text("x\n", encoding="utf-8")
+    git(repo, "add", "-A")
+    git(repo, "-c", "user.name=a", "-c", "user.email=a@b", "commit", "-q", "-m", "source")
+    (repo / source).unlink()
+    (repo / destination).write_text("x\n", encoding="utf-8")
+
+    diff = observe_diff(repo)
+    paths = set(diff.changed_files) | set(diff.created_files)
+
+    assert {source, destination} <= paths
+
+
+def test_a_committed_rename_against_base_reports_both_ends(repo):
+    """dispatch base 가 있어도 committed/staged/unstaged rename 양 끝을 본다."""
+    source = "old source → [odd].py"
+    destination = "new destination → [odd].py"
+    (repo / source).write_text("before\n", encoding="utf-8")
+    git(repo, "add", "-A")
+    git(repo, "-c", "user.name=a", "-c", "user.email=a@b", "commit", "-q", "-m", "source")
+    base = head_of(repo)
+    git(repo, "mv", source, destination)
+    git(repo, "-c", "user.name=a", "-c", "user.email=a@b", "commit", "-q", "-m", "rename")
+    (repo / destination).write_text("after\n", encoding="utf-8")
+
+    diff = observe_diff(repo, base=base)
+    paths = set(diff.changed_files) | set(diff.created_files)
+
+    assert {source, destination} <= paths
+
+
+def test_workspace_content_tracks_modes_and_does_not_follow_supported_symlinks(tmp_path):
+    target = tmp_path / "target.txt"
+    target.write_text("content\n", encoding="utf-8")
+    before = workspace_content(tmp_path)
+
+    target.chmod(target.stat().st_mode ^ stat.S_IWUSR)
+    after = workspace_content(tmp_path)
+    assert before["target.txt"] != after["target.txt"]
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("outside\n", encoding="utf-8")
+    link = tmp_path / "linked"
+    try:
+        link.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        return
+
+    snapshot = workspace_content(tmp_path)
+    assert snapshot["linked"].startswith("symlink:")
+    assert "linked/secret.txt" not in snapshot
 
 
 # --------------------------------------------------------------------------- 증거 판정

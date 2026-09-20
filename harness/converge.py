@@ -7,30 +7,54 @@ converge 가 다시 벌하면 두 층위의 분리가 무너진다.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
 import yaml
 
+from harness.analyze import fingerprint
 from harness.config import HARNESS_DIR, Config
 from harness.dag import load_tasks
 from harness.errors import HarnessError
 from harness.events import EventType
+from harness.exec.verify import workspace_content
 from harness.exec.workspace import COMMITTER, integration_branch, repo_scratch
 from harness.git import git
 from harness.models import Task, Verdict
 from harness.paths import matches
-from harness.policy import CommandPolicy, load_approvals
+from harness.policy import CommandPolicy, approval_hash, load_approvals
 from harness.spec import load_specs, spec_hash
 from harness.store import Store
 
 COVERAGE = "coverage.md"
 RECORD = "converge.json"
 SHIP_REPORT = "ship-report.md"
+_GENERATED_WORKSPACE_PATHS = frozenset(
+    {
+        ".harness/analyze-report.md",
+        ".harness/analyze.json",
+        ".harness/coverage.md",
+        ".harness/converge.json",
+        ".harness/ship-report.md",
+    }
+)
+_WORKSPACE_EXCLUDES = tuple(
+    sorted(
+        {
+            ".harness/runs",
+            ".harness/runs/**",
+            ".harness/knowledge",
+            ".harness/knowledge/**",
+            ".harness/waivers.yaml",
+            *_GENERATED_WORKSPACE_PATHS,
+        }
+    )
+)
 
 
 def latest_run_id(repo: Path | str) -> str | None:
@@ -39,6 +63,12 @@ def latest_run_id(repo: Path | str) -> str | None:
         return None
     ids = sorted(entry.name for entry in runs.iterdir() if entry.is_dir())
     return ids[-1] if ids else None
+
+
+def _configured_store(run_dir: Path, config: Config) -> Store:
+    from harness.redact import Redactor
+
+    return Store(run_dir, redactor=Redactor(patterns=config.secret_patterns).payload)
 
 
 # --------------------------------------------------------------------------- converge
@@ -62,7 +92,10 @@ def converge(repo: Path | str, config: Config, run_id: str | None = None) -> Con
     if not (run_dir / "journal.jsonl").is_file():
         raise HarnessError(f"run 을 찾을 수 없다: {run_id}")
 
-    store = Store(run_dir)
+    store = _configured_store(run_dir, config)
+    integration = integration_branch(run_id)
+    tip = _rev(repo, integration)
+    freshness = _freshness(repo, config, tip, store)
     tasks = load_tasks(repo)
     specs = load_specs(repo)
 
@@ -85,8 +118,6 @@ def converge(repo: Path | str, config: Config, run_id: str | None = None) -> Con
         if spec_path is not None and task.spec_hash != spec_hash(spec_path):
             failures.append(f"{task.id}: 드리프트 — spec_hash 가 현재 spec 과 다르다")
 
-    integration = integration_branch(run_id)
-    tip = _rev(repo, integration)
     if tip:
         failures += _orphans(repo, integration, tasks, store)
 
@@ -96,6 +127,11 @@ def converge(repo: Path | str, config: Config, run_id: str | None = None) -> Con
     finally:
         cleanup()
 
+    if freshness != _freshness(
+        repo, config, _rev(repo, integration), _configured_store(run_dir, config)
+    ):
+        failures.append("converge inputs changed during validation")
+
     report = ConvergeReport(
         not failures,
         run_id,
@@ -103,7 +139,7 @@ def converge(repo: Path | str, config: Config, run_id: str | None = None) -> Con
         tuple(failures),
         tuple(sorted(store.state.open_debts)),
     )
-    _write_converge(repo, report, tip)
+    _write_converge(repo, report, freshness)
     return report
 
 
@@ -134,7 +170,10 @@ def _orphans(repo: Path, integration: str, tasks: Mapping[str, Task], store: Sto
     base = git(["merge-base", "HEAD", integration], cwd=repo)
     if base.exit_code != 0:
         return []
-    changed = git(["diff", "--name-only", base.stdout.strip(), integration], cwd=repo)
+    changed = git(
+        ["diff", "--no-renames", "--name-only", "-z", base.stdout.strip(), integration],
+        cwd=repo,
+    )
     verified = [
         task
         for task in tasks.values()
@@ -144,8 +183,7 @@ def _orphans(repo: Path, integration: str, tasks: Mapping[str, Task], store: Sto
     if any(not task.allowed_paths for task in verified):
         return []  # 제한 없는 task 는 모든 변경을 설명한다 (docs/05)
     out = []
-    for path in changed.stdout.splitlines():
-        path = path.strip()
+    for path in changed.stdout.split("\0"):
         if path and not any(
             matches(path, pattern) for task in verified for pattern in task.allowed_paths
         ):
@@ -183,7 +221,14 @@ def _union(
     policy = CommandPolicy.from_config(
         config.command_policy, load_approvals(repo / HARNESS_DIR / "approved_commands.yaml")
     )
-    debt_cmds = {debt.cmd for debt in store.state.open_debts.values()}
+    debt_identities = {
+        debt.cmd_identity
+        for debt in store.state.open_debts.values()
+        if debt.cmd_identity
+    }
+    debt_cmds = {
+        debt.cmd for debt in store.state.open_debts.values() if not debt.cmd_identity
+    }
 
     checks: list[tuple[tuple[str, ...], bool]] = []
     for task in tasks.values():
@@ -201,13 +246,15 @@ def _union(
         if not result.decision.may_execute:
             failures.append(f"정책이 커맨드를 막았다: {joined}")
         elif result.exit_code != 0:
-            if cmd in debt_cmds:
+            if approval_hash(cmd) in debt_identities or cmd in debt_cmds:
                 continue  # open debt — ship 의 조건이지 converge 의 실패가 아니다
             failures.append(f"red: {joined}")
     return failures
 
 
-def _write_converge(repo: Path, report: ConvergeReport, tip: str | None) -> None:
+def _write_converge(
+    repo: Path, report: ConvergeReport, freshness: Mapping[str, str | None]
+) -> None:
     lines = [
         "# coverage",
         "",
@@ -234,7 +281,7 @@ def _write_converge(repo: Path, report: ConvergeReport, tip: str | None) -> None
             {
                 "ok": report.ok,
                 "run_id": report.run_id,
-                "integration": tip,
+                **freshness,
                 "coverage": dict(report.coverage),
                 "failures": list(report.failures),
                 "open_debts": list(report.open_debts),
@@ -267,18 +314,19 @@ def ship(repo: Path | str, config: Config, run_id: str | None = None) -> ShipRep
 
     integration = integration_branch(run_id)
     tip = _rev(repo, integration)
+    store = _configured_store(repo / HARNESS_DIR / "runs" / run_id, config)
+    current = _freshness(repo, config, tip, store)
     record = _read_json(repo / HARNESS_DIR / RECORD)
     if (
         record is None
         or record.get("run_id") != run_id
         or not record.get("ok")
-        or record.get("integration") != tip
+        or any(record.get(key) != value for key, value in current.items())
     ):
         return _shipped(
             repo, ShipReport(False, run_id, "converge 를 먼저 실행하라 — 결과가 없거나 낡았거나 실패다")
         )
 
-    store = Store(repo / HARNESS_DIR / "runs" / run_id)
     waivers = _waivers(repo)
     waived = [debt_id for debt_id in sorted(store.state.open_debts) if debt_id in waivers]
     remaining = [debt_id for debt_id in sorted(store.state.open_debts) if debt_id not in waivers]
@@ -363,6 +411,68 @@ def _waivers(repo: Path) -> dict[str, Mapping[str, Any]]:
 def _rev(repo: Path, ref: str) -> str | None:
     result = git(["rev-parse", "--verify", "--quiet", ref], cwd=repo)
     return result.stdout.strip() if result.exit_code == 0 else None
+
+
+def _freshness(
+    repo: Path, config: Config, tip: str | None, store: Store
+) -> dict[str, str | None]:
+    return {
+        "integration": tip,
+        "head": _rev(repo, "HEAD"),
+        "fingerprint": fingerprint(repo),
+        "config_fingerprint": _config_fingerprint(config),
+        "approvals_fingerprint": _file_fingerprint(
+            repo / HARNESS_DIR / "approved_commands.yaml"
+        ),
+        "workspace_fingerprint": _workspace_fingerprint(repo) if tip is None else None,
+        "projection_fingerprint": _projection_fingerprint(store),
+    }
+
+
+def _config_fingerprint(config: Config) -> str:
+    values = asdict(config)
+    values.pop("path", None)
+    serialized = json.dumps(
+        {
+            "effective": values,
+            "source": _file_fingerprint(config.path),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _file_fingerprint(path: Path) -> str | None:
+    if not path.is_file():
+        return None
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _workspace_fingerprint(repo: Path) -> str:
+    content = workspace_content(repo, exclude=_WORKSPACE_EXCLUDES)
+    serialized = json.dumps(
+        content, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _projection_fingerprint(store: Store) -> str:
+    projection = {
+        "tasks": {
+            task_id: task.to_dict() for task_id, task in sorted(store.state.tasks.items())
+        },
+        "open_debts": {
+            debt_id: debt.to_dict()
+            for debt_id, debt in sorted(store.state.open_debts.items())
+        },
+    }
+    serialized = json.dumps(
+        projection, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:

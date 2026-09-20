@@ -11,6 +11,9 @@ finding)는 M5 가 이 자리에 더한다.
 
 from __future__ import annotations
 
+import hashlib
+import os
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -220,34 +223,38 @@ def observe_diff(
     한 디렉토리를 쓰므로, 하네스가 남긴 journal 과 아티팩트를 task 의 변경으로 세면
     모든 task 가 control-plane 을 건드린 것이 된다.
     """
-    status = git(["status", "--porcelain", "--untracked-files=all"], cwd=cwd)
-    changed, created = [], []
-    untracked = 0
-    for line in status.stdout.splitlines():
-        if not line.strip():
-            continue
-        code, path = line[:2], _status_path(line[3:])
-        if _any_match(path, exclude):
-            continue
-        if base is not None:
-            if code == "??":
-                created.append(path)
-                untracked += 1
-            continue  # 추적 중인 변경은 base 대비 diff 가 전부 안다
-        (created if code in ("??", "A ", "AM") else changed).append(path)
-
+    status = git(
+        ["status", "--porcelain=v1", "--untracked-files=all", "--no-renames", "-z"],
+        cwd=cwd,
+    )
     if base is None:
+        changed, created = [], []
+        for code, path in _status_records(status.stdout):
+            if _any_match(path, exclude):
+                continue
+            target = created if code == "??" or code.startswith("A") else changed
+            if path not in target:
+                target.append(path)
         return DiffObservation(tuple(changed), tuple(created), _numstat(cwd, len(created)))
 
-    for line in git(["diff", "--name-status", base], cwd=cwd).stdout.splitlines():
-        parts = line.split("\t")
-        if len(parts) < 2:
-            continue
-        path = _status_path(parts[-1])
+    untracked = [
+        path
+        for code, path in _status_records(status.stdout)
+        if code == "??" and not _any_match(path, exclude)
+    ]
+    changed, created = [], []
+    for status_code, path in _name_status_records(
+        git(["diff", "--name-status", "--no-renames", "-z", base], cwd=cwd).stdout
+    ):
         if _any_match(path, exclude):
             continue
-        (created if parts[0].startswith("A") else changed).append(path)
-    return DiffObservation(tuple(changed), tuple(created), _numstat(cwd, untracked, base))
+        target = created if status_code.startswith("A") else changed
+        if path not in target:
+            target.append(path)
+    for path in untracked:
+        if path not in created:
+            created.append(path)
+    return DiffObservation(tuple(changed), tuple(created), _numstat(cwd, len(untracked), base))
 
 
 def matches(path: str, pattern: str) -> bool:
@@ -338,10 +345,66 @@ def _any_match(path: str, patterns: Sequence[str]) -> bool:
     return any(matches(path, pattern) for pattern in patterns)
 
 
-def _status_path(raw: str) -> str:
-    """`git status --porcelain` 의 경로. 이름이 바뀐 항목은 도착 경로를 쓴다."""
-    path = raw.split(" -> ")[-1].strip()
-    return path.strip('"')
+def workspace_content(cwd: Path | str, exclude: Sequence[str] = ()) -> dict[str, str]:
+    """Return content fingerprints for workspace files, excluding control-plane paths."""
+    root = Path(cwd)
+    content = {}
+
+    def excluded(relative: str) -> bool:
+        if relative == ".git" or relative.startswith(".git/"):
+            return True
+        return _any_match(relative, exclude)
+
+    def raise_walk_error(error: OSError) -> None:
+        raise error
+
+    for directory, dirnames, filenames in os.walk(
+        root, topdown=True, onerror=raise_walk_error, followlinks=False
+    ):
+        directory_path = Path(directory)
+        kept_dirs = []
+        for name in dirnames:
+            path = directory_path / name
+            relative = path.relative_to(root).as_posix()
+            if excluded(relative):
+                continue
+            if path.is_symlink():
+                mode = stat.S_IMODE(path.lstat().st_mode)
+                content[relative] = f"symlink:{os.readlink(path)}:{mode:o}"
+                continue
+            kept_dirs.append(name)
+        dirnames[:] = kept_dirs
+
+        for name in filenames:
+            path = directory_path / name
+            relative = path.relative_to(root).as_posix()
+            if excluded(relative):
+                continue
+            mode = stat.S_IMODE(path.lstat().st_mode)
+            if path.is_symlink():
+                content[relative] = f"symlink:{os.readlink(path)}:{mode:o}"
+            else:
+                digest = hashlib.sha256(path.read_bytes()).hexdigest()
+                content[relative] = f"{mode:o}:{digest}"
+    return content
+
+
+def _status_records(raw: str) -> list[tuple[str, str]]:
+    """Parse porcelain-v1 NUL records without Git's quote/escape rendering."""
+    records = []
+    for record in raw.split("\0"):
+        if not record:
+            continue
+        code = record[:2]
+        path = record[3:] if len(record) >= 3 and record[2] == " " else record[2:]
+        records.append((code, path))
+    return records
+
+
+def _name_status_records(raw: str) -> list[tuple[str, str]]:
+    """Parse `git diff --name-status -z` after rename detection is disabled."""
+    fields = [field for field in raw.split("\0") if field]
+    return list(zip(fields[0::2], fields[1::2]))
 
 
 def _numstat(cwd: Path | str, created_count: int, base: str | None = None) -> dict[str, int]:

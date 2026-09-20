@@ -65,6 +65,25 @@ def test_event_ids_follow_the_run_id(tmp_path):
     assert ev.id == f"{RUN_ID}-000001"
 
 
+def test_store_redacts_a_copy_before_journal_and_projection(tmp_path):
+    raw = {"debt_id": "D-001", "cmd": ["tool", "secret"], "origin_task": "T-001"}
+
+    def redact(payload):
+        safe = dict(payload)
+        safe["cmd"] = ["tool", "masked"]
+        safe["cmd_identity"] = "sha256:identity"
+        return safe
+
+    store = Store(tmp_path / "runs" / RUN_ID, redactor=redact)
+    store.append(EventType.DEBT_OPENED, raw, task_id="T-001", attempt=1)
+
+    assert raw["cmd"] == ["tool", "secret"]
+    debt = store.state.open_debts["D-001"]
+    assert debt.cmd == ("tool", "masked")
+    assert debt.cmd_identity == "sha256:identity"
+    assert "secret" not in store.journal.path.read_text(encoding="utf-8")
+
+
 def test_journal_is_append_only_jsonl(tmp_path):
     store = new_store(tmp_path)
     start_run(store)
@@ -101,6 +120,40 @@ def test_corrupt_trailing_line_is_dropped(tmp_path):
     events = store.journal.read()
     assert len(events) == 1
     assert events[0].type is EventType.RUN_STARTED
+
+
+def test_reopened_append_repairs_a_torn_utf8_tail(tmp_path):
+    store = new_store(tmp_path)
+    start_run(store)
+    prefix = store.journal.path.read_bytes()
+    with open(store.journal.path, "ab") as fh:
+        fh.write(b'{"payload":"\xe2\x82')
+
+    reopened = new_store(tmp_path)
+    event = reopened.append(
+        EventType.BUDGET_CHECKPOINT,
+        {"tokens": 1, "cost_usd": None, "wall_time_s": 0.1, "remaining": None},
+    )
+
+    assert event.seq == 2
+    assert reopened.journal.path.read_bytes().startswith(prefix)
+    assert [event.seq for event in new_store(tmp_path).journal.read()] == [1, 2]
+
+
+def test_append_does_not_repair_a_corrupt_complete_line(tmp_path):
+    store = new_store(tmp_path)
+    start_run(store)
+    with open(store.journal.path, "ab") as fh:
+        fh.write(b"not-json\n")
+    before = store.journal.path.read_bytes()
+
+    with pytest.raises(JournalCorruptionError):
+        Journal(store.journal.path, RUN_ID).append(
+            EventType.BUDGET_CHECKPOINT,
+            {"tokens": 1, "cost_usd": None, "wall_time_s": 0.1, "remaining": None},
+        )
+
+    assert store.journal.path.read_bytes() == before
 
 
 def test_corruption_in_the_middle_raises(tmp_path):

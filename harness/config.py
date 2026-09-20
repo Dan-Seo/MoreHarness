@@ -9,6 +9,7 @@ docs/03, docs/05 — 하네스는 config 를 항상 메인 저장소에서 읽�
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
@@ -84,6 +85,7 @@ class Config:
     max_attempts: int
     max_handoff_repairs: int
     blocked_signals: tuple[str, ...]
+    secret_patterns: tuple[str, ...]
     max_review_waves: int  # docs/06 — bounded review wave 의 한도
     adversarial_adapter: str | None  # docs/06 — adversarial 리뷰어만 쓰는 어댑터
     risk_rules: tuple[Mapping[str, Any], ...]  # docs/06 — 항목 검증은 risk 가 한다
@@ -161,6 +163,7 @@ def load(repo_root: Path | str) -> Config:
             data, "max_handoff_repairs", DEFAULT_MAX_HANDOFF_REPAIRS, minimum=0
         ),
         blocked_signals=_string_list(data, "blocked_signals"),
+        secret_patterns=_secret_patterns(data),
         max_review_waves=_bounded_int(data, "max_review_waves", 2, minimum=1),
         adversarial_adapter=adversarial,
         risk_rules=tuple(data.get("risk_rules") or ()),
@@ -302,3 +305,15 @@ def _string_list(data: Mapping[str, Any], key: str) -> tuple[str, ...]:
     if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
         raise ConfigError(f"{key} 은(는) 문자열 목록이어야 한다: {value!r}")
     return tuple(value)
+
+
+def _secret_patterns(data: Mapping[str, Any]) -> tuple[str, ...]:
+    patterns = _string_list(data, "secret_patterns")
+    for index, pattern in enumerate(patterns):
+        if not pattern:
+            raise ConfigError(f"secret_patterns[{index}] 은(는) 비어 있을 수 없다")
+        try:
+            re.compile(pattern)
+        except re.error as exc:
+            raise ConfigError(f"secret_patterns[{index}] 의 정규식이 잘못됐다: {exc}") from exc
+    return patterns

@@ -69,13 +69,17 @@ command_policy:
 # .harness/approved_commands.yaml
 approvals:
   - cmd: ["npm", "install"]
-    hash: "sha256:..."        # 정규화 문자열의 해시
+    hash: "sha256:..."        # 직렬화한 argv 리스트의 해시
     approver: "emdhks09@gmail.com"
     approved_at: "2026-08-27T14:20:00+09:00"
     scope: run                # run | project
 ```
 
-해시가 키이므로 인자가 하나라도 바뀌면 승인이 재사용되지 않는다.
+승인 식별자는 빈 인자를 포함한 argv 경계를 보존한다. 해시는
+`json.dumps(list(cmd), ensure_ascii=False, separators=(",", ":"))`로 만든 JSON 배열을
+UTF-8로 인코딩한 SHA-256이다. 해시와 저장된 `cmd`가 모두 요청한 argv와 일치해야 한다.
+공백으로 연결한 문자열은 규칙 매칭에만 쓰며 승인 식별자로 쓰지 않는다.
+이전 공백 연결 방식의 해시는 다시 생성해야 하며, 호환용으로 허용하지 않는다.
 
 ### 기본 실행은 `shell=False`
 
@@ -269,6 +273,8 @@ required handoff gate
 
 - **코드는 그대로 둔다.** 되돌리지도 다시 만들지도 않는다. 구현은 이미 증거로 검증되었다.
 - **handoff artifact만** 재생성하는 좁은 fixer를 호출한다. `fixer_dispatched {scope: "handoff"}`.
+- 하네스는 각 handoff 복구 전후의 워크스페이스 내용을 비교한다. 코드가 바뀌면
+  기존 검증 증거가 무효이므로 통합 전에 attempt를 거부한다.
 - 기존 fixer 경로와 프롬프트 템플릿 하나를 공유한다. 새 기계장치를 만들지 않는다.
 - 성공 → verdict `verified` → `done`.
 - 시도 소진 → state `human_required` (reason: `handoff_missing`).
@@ -391,6 +397,9 @@ wave 한도 초과 후에도 blocking 이 남으면 → verdict rejected (10 의
 ```
 
 - **리뷰어는 구현자의 대화를 보지 않는다.** 컨텍스트는 diff, task 계약, constitution뿐이다. 구현자의 논리에 설득당하는 리뷰는 독립 리뷰가 아니다.
+- 리뷰어는 outbox에 findings를 쓸 수 있지만 워크스페이스 내용은 바꾸면 안 된다.
+  하네스는 리뷰어 호출마다 이를 확인하고 워크스페이스가 바뀐 attempt를 거부한다.
+  빈 findings로 변경을 승인할 수 없다. 코드 fixer는 위의 AC와 경로 검사를 계속 적용받는다.
 - `blocking` 판정은 결정론적이다: `severity ∈ {high, critical}` 또는 `rule ∈ constitution.critical`. 리뷰어가 스스로 blocking 여부를 정하지 않는다. **constitution의 `## critical` 섹션의 리스트 항목이 그 rule 목록이다.**
 - 예산 초과 시 조용히 품질 기준을 낮추지 않는다. verdict `budget_exhausted`로 정지한다.
 

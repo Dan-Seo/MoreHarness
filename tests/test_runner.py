@@ -23,9 +23,11 @@ from harness.config import load
 from harness.dag import Dag, load_tasks
 from harness.errors import HarnessError
 from harness.events import EventType
-from harness.exec.runner import run_dag
+from harness.exec.runner import _valid_criterion_index, run_dag, write_transcript
 from harness.exec.workspace import integration_branch
 from harness.models import State, Verdict
+from harness.policy import approval_hash
+from harness.redact import Redactor
 
 PYTHON = re.escape(sys.executable)
 
@@ -222,6 +224,57 @@ def test_every_dispatched_prompt_names_the_outbox_by_absolute_path(repo):
         assert request.env["HARNESS_OUTBOX"] == str(request.outbox)
 
 
+def test_prompt_and_transcript_do_not_persist_a_configured_secret(repo):
+    secret = "TOPSECRET-ABC"
+    config = configure(repo, secret_patterns=[r"TOPSECRET-[A-Z]+"])
+    (repo / "context.txt").write_text(f"context={secret}\n", encoding="utf-8")
+    write_task(repo, "T-001", context={"files": ["context.txt"]})
+    adapter = ScriptedAdapter(
+        [{"files": {"a.py": "1\n"}, "stdout": secret, "stderr": secret}]
+    )
+
+    store = go(repo, config, adapter=adapter)
+
+    prompt = adapter.requests[0].prompt
+    transcript = next(e for e in store.journal.read() if e.type is EventType.AGENT_FINISHED)
+    body = Path(transcript.payload["transcript_ref"]).read_text(encoding="utf-8")
+    saved_prompt = (store.run_dir / "tasks" / "T-001" / "prompt.md").read_text(
+        encoding="utf-8"
+    )
+    assert secret not in prompt
+    assert secret not in saved_prompt
+    assert secret not in body
+
+
+def test_persisted_transcript_masks_a_secret(tmp_path):
+    secret = "TOPSECRET-ABC"
+    result = AgentResult(0, secret, secret, None, None, 0.0, None, None, None)
+
+    path = write_transcript(
+        tmp_path, "attempt-1", "test", result, redactor=Redactor(patterns=(r"TOPSECRET-[A-Z]+",))
+    )
+
+    assert secret not in path.read_text(encoding="utf-8")
+
+
+def test_masked_journal_command_keeps_a_replay_identity(repo):
+    secret = "TOPSECRET-ABC"
+    command = [sys.executable, "-c", f"print('{secret}')"]
+    config = configure(repo, secret_patterns=[r"TOPSECRET-[A-Z]+"])
+    write_task(repo, "T-001", acceptance=[{"cmd": command}])
+
+    store = go(repo, config, adapter=ScriptedAdapter([{"files": {"a.py": "1\n"}}]))
+
+    event = next(e for e in store.journal.read() if e.type is EventType.AC_BASELINE_EXECUTED)
+    assert secret not in str(event.payload["cmd"])
+    assert event.payload["cmd_identity"] == approval_hash(command)
+    changed = [sys.executable, "-c", "print('TOPSECRET-XYZ')"]
+    assert not _valid_criterion_index(
+        {**event.payload, "cmd_identity": approval_hash(changed)},
+        load_tasks(repo)["T-001"],
+    )
+
+
 def test_every_dispatch_leaves_a_transcript_in_the_control_plane(repo):
     """docs/03 파일 배치 — agent 의 stdout/stderr 를 dispatch 단위로 남긴다.
 
@@ -362,6 +415,25 @@ def test_a_missing_required_handoff_does_not_throw_away_the_implementation(repo)
     kinds = types_for(store, "T-001")
     assert EventType.HANDOFF_MISSING in kinds
     assert EventType.FIXER_DISPATCHED in kinds
+
+
+def test_a_handoff_repair_mutation_is_rejected_before_integration(repo):
+    """docs/06 — handoff repair 뒤 workspace content 가 달라지면 통합하지 않는다."""
+    config = configure(repo, profile="worktree", max_attempts=1)
+    write_task(repo, "T-001", allowed_paths=["src/**"], outputs={"required": ["public_api"]})
+    adapter = ScriptedAdapter(
+        [
+            {"files": {"src/plain.py": "x = 1\n"}},
+            {"files": {"src/plain.py": "x = 2\n"}, "handoff": HANDOFF},
+        ]
+    )
+
+    store = go(repo, config, adapter)
+
+    task = task_of(store, "T-001")
+    assert task.verdict is Verdict.REJECTED
+    assert task.reason == "handoff_repair_workspace_mutated"
+    assert out(repo, "show", f"{integration_branch('run-1')}:src/plain.py") == ""
 
 
 def test_the_handoff_fixer_is_scoped_to_the_handoff(repo):
@@ -904,8 +976,14 @@ def test_resume_restarts_a_dead_attempt_with_the_same_number(repo):
 
 def test_resume_replays_verification_without_calling_the_agent_again(repo, monkeypatch):
     """docs/10 — baseline 은 journal 에 있다. agent 를 다시 부를 이유가 없다."""
-    config = configure(repo, profile="worktree")
-    write_task(repo, "T-001", acceptance=[exits(0)])
+    secret = "TOPSECRET-ABC"
+    command = [sys.executable, "-c", f"print('{secret}')"]
+    config = configure(
+        repo,
+        profile="worktree",
+        secret_patterns=[r"TOPSECRET-[A-Z]+"],
+    )
+    write_task(repo, "T-001", acceptance=[{"cmd": command}])
     adapter = ScriptedAdapter([{"files": {"a.py": "1\n"}}])
 
     def crash(*_args, **_kwargs):
@@ -919,6 +997,11 @@ def test_resume_replays_verification_without_calling_the_agent_again(repo, monke
     store = go(repo, config, adapter, resume=True)
     assert task_of(store, "T-001").state is State.DONE
     assert len(adapter.requests) == 1
+    baseline = next(
+        e for e in store.journal.read() if e.type is EventType.AC_BASELINE_EXECUTED
+    )
+    assert secret not in str(baseline.payload["cmd"])
+    assert baseline.payload["cmd_identity"] == approval_hash(command)
 
 
 def test_resume_needs_an_existing_run(repo):

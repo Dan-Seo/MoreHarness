@@ -124,6 +124,34 @@ def test_allow_unsafe_defaults_to_false(repo):
     assert load(repo).allow_unsafe is False
 
 
+def test_secret_patterns_default_to_empty_and_are_configurable(repo):
+    assert load(repo).secret_patterns == ()
+    write_config(
+        repo,
+        """
+        version: 1
+        defaults: {adapter: mock}
+        adapters: {mock: {type: mock}}
+        secret_patterns: ["TOPSECRET-[A-Z]+"]
+        """,
+    )
+    assert load(repo).secret_patterns == ("TOPSECRET-[A-Z]+",)
+
+
+def test_invalid_secret_patterns_fail_closed(repo):
+    write_config(
+        repo,
+        """
+        version: 1
+        defaults: {adapter: mock}
+        adapters: {mock: {type: mock}}
+        secret_patterns: ["["]
+        """,
+    )
+    with pytest.raises(ConfigError):
+        load(repo)
+
+
 def test_adapter_options_are_preserved(repo):
     write_config(
         repo,

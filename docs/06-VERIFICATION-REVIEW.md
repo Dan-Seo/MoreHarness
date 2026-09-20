@@ -67,13 +67,17 @@ If the `command_policy` key is absent there are no rules at all, so every comman
 # .harness/approved_commands.yaml
 approvals:
   - cmd: ["npm", "install"]
-    hash: "sha256:..."        # hash of the normalized string
+    hash: "sha256:..."        # hash of the serialized argv list
     approver: "emdhks09@gmail.com"
     approved_at: "2026-08-27T14:20:00+09:00"
     scope: run                # run | project
 ```
 
-Because the hash is the key, if even one argument changes the approval is not reused.
+Approval identity preserves argv boundaries, including empty arguments. The hash is SHA-256
+of the UTF-8 JSON array produced by `json.dumps(list(cmd), ensure_ascii=False, separators=(",", ":"))`.
+Both the hash and the stored `cmd` must match the requested argv. Space-joined strings are
+used only for rule matching, never approval identity. Older space-joined hashes must be
+regenerated; they are not accepted as a fallback.
 
 ### The Default Execution Is `shell=False`
 
@@ -267,6 +271,8 @@ What `repairing` does:
 
 - **The code is left as it is.** It is neither reverted nor rebuilt. The implementation has already been verified by evidence.
 - A narrow fixer that regenerates **only the handoff artifact** is invoked. `fixer_dispatched {scope: "handoff"}`.
+- The harness compares workspace content before and after each handoff repair. A code
+  change invalidates the verified evidence and rejects the attempt before integration.
 - It shares one prompt template with the existing fixer path. No new machinery is built.
 - Success → verdict `verified` → `done`.
 - Attempts exhausted → state `human_required` (reason: `handoff_missing`).
@@ -389,6 +395,9 @@ if blocking remains after the wave limit is exceeded → verdict rejected (10's 
 ```
 
 - **Reviewers do not see the implementer's conversation.** The context is the diff, the task contract, and the constitution, and nothing else. A review that is persuaded by the implementer's reasoning is not an independent review.
+- Reviewers may write findings to their outbox but must leave workspace content unchanged.
+  The harness checks each reviewer call and rejects an attempt that changes the workspace;
+  empty findings cannot authorize such changes. Code fixers remain subject to the AC and path checks above.
 - The `blocking` adjudication is deterministic: `severity ∈ {high, critical}` or `rule ∈ constitution.critical`. Reviewers do not decide blocking for themselves. **The list items of the constitution's `## critical` section are that rule list.**
 - Exceeding the budget does not silently lower the quality bar. It stops with verdict `budget_exhausted`.
 

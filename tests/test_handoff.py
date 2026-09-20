@@ -11,6 +11,7 @@ import yaml
 
 from harness.dag import load_tasks
 from harness.exec.handoff import CLAIM, HANDOFF, gate, merge_output, normalize
+from harness.redact import Redactor
 
 VALID_CLAIM = {"schema": "harness.claim/v1", "task_id": "T-001", "outcome_claim": "implemented"}
 VALID_HANDOFF = {
@@ -70,6 +71,24 @@ def test_a_valid_handoff_is_promoted(tmp_path):
     assert artifact.path.name == "handoff.json"
 
 
+def test_a_valid_handoff_is_promoted_masked_but_remains_valid(tmp_path):
+    secret = "TOPSECRET-ABC"
+    payload = {**VALID_HANDOFF, "decisions": [secret]}
+    raw = outbox(tmp_path, "handoff.json", payload)
+
+    artifact = normalize(
+        HANDOFF,
+        raw,
+        tmp_path / "promoted",
+        redactor=Redactor(patterns=(r"TOPSECRET-[A-Z]+",)),
+    )
+
+    assert artifact.valid
+    promoted = artifact.path.read_text(encoding="utf-8")
+    assert secret not in promoted
+    assert artifact.data["public_api"] == VALID_HANDOFF["public_api"]
+
+
 def test_unparsable_json_is_preserved_as_invalid(tmp_path):
     raw = outbox(tmp_path, "result.json", "{ this is not json")
     artifact = normalize(CLAIM, raw, tmp_path / "promoted")
@@ -116,6 +135,20 @@ def test_a_schema_violation_is_preserved_as_invalid(tmp_path):
 
     assert not artifact.valid
     assert artifact.path.name == "claim.invalid.json"
+
+
+def test_invalid_schema_promotion_masks_parsed_credential_values(tmp_path):
+    raw = outbox(
+        tmp_path,
+        "result.json",
+        {"schema": "harness.claim/v1", "task_id": "not-a-task", "password": "hunter2"},
+    )
+
+    artifact = normalize(CLAIM, raw, tmp_path / "promoted")
+
+    assert not artifact.valid
+    assert "hunter2" not in str(artifact.error)
+    assert "hunter2" not in artifact.path.read_text(encoding="utf-8")
 
 
 def test_an_invalid_artifact_reads_as_none_for_judgement(tmp_path):

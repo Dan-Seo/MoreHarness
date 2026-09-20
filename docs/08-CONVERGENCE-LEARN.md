@@ -114,16 +114,17 @@ R-###  →  task  →  verdict  →  evidence
 ### Other checks
 
 - **Drift** — the task's `spec_hash` and the hash of the current spec differ. It means the spec changed during implementation.
-- **Orphan diff** — the integration branch holds changes that the `allowed_paths` of verified tasks do not explain. A task that does not declare `allowed_paths` has no restriction, so it explains every change (05).
+- **Orphan diff** — the integration branch holds changes that the `allowed_paths` of verified tasks do not explain. The check uses `git diff --no-renames -z`, so both endpoints of a rename are checked and unusual path characters are preserved. A task that does not declare `allowed_paths` has no restriction, so it explains every change (05).
 - **Executing the union of all ACs** — it checks the integration branch out into a harness-owned temporary worktree and executes every task's ACs and the `health_commands` from config. They go through Command Policy. A red that corresponds to an open debt is reported as a ledger entry, and **every other red is a failure.**
 - **open_debts** — the ledger is carried in the report. **Debt is not a failure condition of converge but a condition of ship.** If converge punishes again what differential adjudication exempted, the separation of the two levels collapses.
+- **Freshness** — converge records its inputs before validation: the integration tip, current user `HEAD`, the specs/tasks fingerprint, effective `Config` values plus the source config bytes, approval-file bytes, the safe-workspace content map, and the semantic task/debt projection. It rechecks them before writing an `ok` report, and ship compares the saved stamp. Generated control-plane outputs (including `runs/` and `knowledge/`) and `waivers.yaml` are excluded from the safe-workspace stamp; journal sequence alone is not a freshness input.
 
 The conditions under which converge fails — there is an uncovered/unverified/partial · there is drift · there is an orphan diff · there is a red that does not correspond to a debt.
 
 ### Output
 
 - `.harness/coverage.md` — the coverage matrix for a human
-- `.harness/converge.json` — `{ok, run_id, integration, coverage, ...}`. ship reads this.
+- `.harness/converge.json` — `{ok, run_id, integration, head, fingerprint, config_fingerprint, approvals_fingerprint, workspace_fingerprint, projection_fingerprint, coverage, ...}`. ship reads this and fails closed if any saved input differs.
 
 ### The config keys 08 owns
 
@@ -155,7 +156,7 @@ if it later turns green in some task's post
 
 ## The ship gate — canonical
 
-There are four conditions under which `harness ship` allows a pass. **All of them must be satisfied.**
+There are four semantic conditions under which `harness ship` allows a pass. **All of them must be satisfied, and the converge report must still be fresh.**
 
 ```
 1. every R-### is covered
@@ -180,8 +181,7 @@ There is no path by which a broken state ships without a waiver.
 ### The ship procedure
 
 ```
-1. Check that converge.json is for this run's **current** integration tip and is ok.
-   Otherwise fail with "run converge first".
+1. Check that converge.json is for this run's **current** integration tip and user `HEAD`, is ok, and matches the current specs/tasks, effective/source config, approvals, safe workspace, and task/debt projection. Otherwise fail with "run converge first".
 2. Subtract from open_debts what a waiver exempted; if anything remains, fail.
 3. On a pass, merge the integration branch into the user's current branch. Because the
    user's branch did not move during the run (05) it is usually a fast-forward. On a

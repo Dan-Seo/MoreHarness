@@ -9,8 +9,9 @@ from __future__ import annotations
 import json
 import os
 import threading
+from copy import deepcopy
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 from harness.errors import JournalCorruptionError
 from harness.events import Event, EventType, make_event
@@ -56,6 +57,7 @@ class Journal:
         attempt: int | None = None,
     ) -> Event:
         event = make_event(self.run_id, self.last_seq + 1, type, payload, task_id, attempt)
+        self._repair_incomplete_tail()
         line = json.dumps(event.to_dict(), ensure_ascii=False) + "\n"
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.path, "a", encoding="utf-8", newline="\n") as handle:
@@ -74,11 +76,15 @@ class Journal:
         """
         if not self.path.exists():
             return []
-        raw = self.path.read_text(encoding="utf-8")
+        raw = self.path.read_bytes()
         if not raw:
             return []
-        lines = raw.split("\n")
-        lines.pop()  # 개행 뒤의 빈 문자열이거나, 개행 없이 끊긴 부분 줄이다.
+        complete = raw if raw.endswith(b"\n") else raw[: raw.rfind(b"\n") + 1]
+        try:
+            text = complete.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise JournalCorruptionError(f"{self.path}: invalid UTF-8: {exc}") from exc
+        lines = text.split("\n")[:-1]
 
         events = []
         for number, line in enumerate(lines, start=1):
@@ -89,6 +95,23 @@ class Journal:
             except (ValueError, KeyError) as exc:
                 raise JournalCorruptionError(f"{self.path}:{number} 손상: {exc}") from exc
         return events
+
+    def _repair_incomplete_tail(self) -> None:
+        if not self.path.exists():
+            return
+        with open(self.path, "rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            if handle.tell() == 0:
+                return
+            handle.seek(-1, os.SEEK_END)
+            if handle.read(1) == b"\n":
+                return
+        raw = self.path.read_bytes()
+        complete_end = raw.rfind(b"\n") + 1
+        with open(self.path, "r+b") as handle:
+            handle.truncate(complete_end)
+            handle.flush()
+            os.fsync(handle.fileno())
 
 
 def check_sequence(events: Iterable[Event]) -> list[str]:
@@ -125,6 +148,7 @@ def apply(state: RunState, event: Event) -> RunState:
             debt_id=debt_id,
             cmd=tuple(event.payload.get("cmd") or ()),
             origin_task=event.payload.get("origin_task"),
+            cmd_identity=event.payload.get("cmd_identity"),
         )
         return state
 
@@ -180,9 +204,19 @@ def fold(events: Iterable[Event], run_id: str) -> RunState:
 class Store:
     """한 run 의 journal 과 그 projection."""
 
-    def __init__(self, run_dir: Path | str) -> None:
+    def __init__(
+        self,
+        run_dir: Path | str,
+        *,
+        redactor: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None = None,
+    ) -> None:
         self.run_dir = Path(run_dir)
         self.run_id = self.run_dir.name
+        if redactor is None:
+            from harness.redact import Redactor
+
+            redactor = Redactor().payload
+        self._redactor = redactor
         self.journal = Journal(self.run_dir / "journal.jsonl", self.run_id)
         self.state_path = self.run_dir / "state.json"
         self._state = self._load_or_fold()
@@ -202,7 +236,8 @@ class Store:
         attempt: int | None = None,
     ) -> Event:
         with self._lock:
-            event = self.journal.append(type, payload, task_id, attempt)  # 1) append + fsync
+            safe_payload = self._redactor(deepcopy(dict(payload)))
+            event = self.journal.append(type, safe_payload, task_id, attempt)  # 1) append + fsync
             apply(self._state, event)  # 2) projection
             self._write_state()  # 3) 스냅샷
             return event

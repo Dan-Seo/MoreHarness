@@ -173,14 +173,16 @@ The offline suite skips the real Codex test. To run it with an authenticated CLI
 (this consumes model usage):
 
 ```bash
-python -m pytest tests/test_codex_live.py -q -s --codex-binary codex
+python -m pytest tests/test_codex_live.py -q -s --codex-binary codex --codex-model gpt-5.6-luna --codex-reasoning-effort max
 ```
 
 In PowerShell, a native executable path can be supplied directly:
 
 ```powershell
-python -m pytest tests/test_codex_live.py -q -s --codex-binary 'C:/path/to/codex.exe'
+python -m pytest tests/test_codex_live.py -q -s --codex-binary 'C:/path/to/codex.exe' --codex-model gpt-5.6-luna --codex-reasoning-effort max
 ```
+
+The live-test options default to `gpt-5.6-luna` and `max`; service tier is left unset.
 
 The test creates a disposable Git repository, checks that Codex follows its
 `AGENTS.md`, edits only the allowed file, writes valid claim and handoff artifacts

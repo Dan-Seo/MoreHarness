@@ -12,7 +12,6 @@ docs/03 의 상태 기계와 docs/06 의 판정 순서를 그대로 따른다. �
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import shutil
@@ -33,8 +32,9 @@ from harness.exec import verify as verify_module
 from harness.exec.workspace import MergeResult, Workspace, Workspaces
 from harness.git import git
 from harness.models import DevelopmentMode, ExecutionProfile, State, Task, Verdict
-from harness.policy import CommandPolicy, PolicyVerdict, load_approvals
+from harness.policy import CommandPolicy, PolicyVerdict, approval_hash, load_approvals
 from harness.probes import check_all, matching_blocked_signal
+from harness.redact import Redactor
 from harness.store import Store
 
 STDERR_TAIL_CHARS = 2000
@@ -155,7 +155,8 @@ def run_dag(
         config.command_policy,
         load_approvals(repo / HARNESS_DIR / "approved_commands.yaml"),
     )
-    store = Store(_run_dir(repo, run_id, resume))
+    redactor = Redactor(config.secret_patterns)
+    store = Store(_run_dir(repo, run_id, resume), redactor=redactor.payload)
     cls = runner_cls or Runner
     return cls(
         repo,
@@ -192,6 +193,7 @@ class Runner:
         self.context_builder = context_builder
         self.review_stage = review_stage
         self.tdd_stage = tdd_stage
+        self.redactor = Redactor(config.secret_patterns)
         self.workspaces = Workspaces(
             repo, store.run_id, config.default_profile, scratch
         )
@@ -427,10 +429,12 @@ class Runner:
             base = self._base_from_journal(task, attempt)
 
         raw_claim, raw_handoff = outbox
-        claim = handoff_module.normalize(handoff_module.CLAIM, raw_claim, task_dir)
+        claim = handoff_module.normalize(
+            handoff_module.CLAIM, raw_claim, task_dir, redactor=self.redactor
+        )
         self._record_artifact(claim, task, attempt)
         handoff = handoff_module.normalize(
-            handoff_module.HANDOFF, raw_handoff, task_dir
+            handoff_module.HANDOFF, raw_handoff, task_dir, redactor=self.redactor
         )
         self._record_artifact(handoff, task, attempt)
 
@@ -646,11 +650,14 @@ class Runner:
 
         워크트리 프로파일에서는 run 디렉토리가 워크스페이스 밖이므로 뺄 것이 없다.
         """
-        try:
-            relative = self.store.run_dir.relative_to(cwd)
-        except ValueError:
-            return ()
-        return (f"{relative.as_posix()}/**",)
+        paths = []
+        for control in (self.store.run_dir, self.workspaces.scratch):
+            try:
+                relative = control.relative_to(cwd)
+            except ValueError:
+                continue
+            paths.append(f"{relative.as_posix()}/**")
+        return tuple(paths)
 
     def _forbidden(self, task: Task) -> tuple[str, ...]:
         """docs/05 — effective_forbidden = task.forbidden_paths ∪ config.forbidden_paths."""
@@ -691,15 +698,17 @@ class Runner:
         # 선언 순서로 되돌린다.
         if len(payloads) != len(task.acceptance):
             return None
-        grouped: dict[tuple[tuple[str, ...], bool], deque[Mapping[str, Any]]] = (
+        grouped: dict[tuple[str, bool], deque[Mapping[str, Any]]] = (
             defaultdict(deque)
         )
         for payload in payloads:
-            grouped[_baseline_key(payload)].append(payload)
+            key = _baseline_key(payload)
+            if key[0] is not None:
+                grouped[key].append(payload)
 
         ordered = []
         for criterion in task.acceptance:
-            matches = grouped[(tuple(criterion.cmd), criterion.expect_fail_before)]
+            matches = grouped[(approval_hash(criterion.cmd), criterion.expect_fail_before)]
             if not matches:
                 return None
             ordered.append(verify_module.AcObservation.from_payload(matches.popleft()))
@@ -843,7 +852,7 @@ class Runner:
         adapter = self._adapter_for(task, adapter_name)
         request = AgentRequest(
             task_id=task.id,
-            prompt=prompt + _outbox_footer(outbox),
+            prompt=self.redactor.text(prompt + _outbox_footer(outbox)),
             workspace=workspace.path,
             outbox=outbox,
             profile=self._profile(task),
@@ -872,7 +881,11 @@ class Runner:
         )
         result = adapter.execute(request)
         transcript = write_transcript(
-            self.store.run_dir / "tasks" / task.id, outbox.name, adapter.name, result
+            self.store.run_dir / "tasks" / task.id,
+            outbox.name,
+            adapter.name,
+            result,
+            redactor=self.redactor,
         )
         self.store.append(
             EventType.AGENT_FINISHED,
@@ -937,11 +950,27 @@ class Runner:
                 task.id,
                 attempt,
             )
-            result = self._dispatch(
-                task, attempt, workspace, _repair_prompt(task, gate), repair=repairs
-            )
+            try:
+                before_content = verify_module.workspace_content(
+                    workspace.path, self._harness_paths(workspace.path)
+                )
+                result = self._dispatch(
+                    task, attempt, workspace, _repair_prompt(task, gate), repair=repairs
+                )
+                after_content = verify_module.workspace_content(
+                    workspace.path, self._harness_paths(workspace.path)
+                )
+            except OSError:
+                self._write_verification(task_dir, task, evidence, handoff)
+                return AttemptOutcome(Verdict.ERROR, "workspace_snapshot_failed")
+            if before_content != after_content:
+                self._write_verification(task_dir, task, evidence, handoff)
+                return AttemptOutcome(Verdict.REJECTED, "handoff_repair_workspace_mutated")
             handoff = handoff_module.normalize(
-                handoff_module.HANDOFF, result.raw_handoff_path, task_dir
+                handoff_module.HANDOFF,
+                result.raw_handoff_path,
+                task_dir,
+                redactor=self.redactor,
             )
             self._record_artifact(handoff, task, attempt)
             gate = handoff_module.gate(task, handoff)
@@ -991,7 +1020,9 @@ class Runner:
             "output": handoff_module.merge_output(
                 task, evidence.diff.to_output(), handoff
             ),
-            "differentials": [d.post_payload() for d in evidence.differentials],
+            "differentials": [
+                self.redactor.payload(d.post_payload()) for d in evidence.differentials
+            ],
         }
         if merge is not None:
             # docs/10 의 런북이 충돌 파일 목록을 여기서 찾는다.
@@ -1021,7 +1052,7 @@ class Runner:
                 json.dumps(built.manifest, ensure_ascii=False, indent=2) + "\n",
                 encoding="utf-8",
             )
-            path.write_text(built.prompt, encoding="utf-8")
+            path.write_text(self.redactor.text(built.prompt), encoding="utf-8")
             return path, str(manifest_path)
 
         sections = [
@@ -1033,7 +1064,10 @@ class Runner:
             if body:
                 sections.append(f"## {relative}\n\n```\n{body}\n```")
         sections.append("## 산출물\n\n" + handoff_module.output_contract(task.id))
-        path.write_text("\n\n".join(s for s in sections if s) + "\n", encoding="utf-8")
+        path.write_text(
+            self.redactor.text("\n\n".join(s for s in sections if s) + "\n"),
+            encoding="utf-8",
+        )
         return path, None
 
     # ----------------------------------------------------------------- 보조
@@ -1080,7 +1114,12 @@ def _run_dir(repo: Path, run_id: str | None, resume: bool = False) -> Path:
 
 
 def write_transcript(
-    task_dir: Path, label: str, adapter_name: str, result: AgentResult
+    task_dir: Path,
+    label: str,
+    adapter_name: str,
+    result: AgentResult,
+    *,
+    redactor: Redactor | None = None,
 ) -> Path:
     """agent 의 stdout/stderr 를 dispatch 단위로 남긴다 (docs/03 의 파일 배치).
 
@@ -1096,10 +1135,8 @@ def write_transcript(
         f"# adapter={adapter_name} exit={result.exit_code} "
         f"duration_s={result.duration_s:.3f} runtime_failure={failure}"
     )
-    path.write_text(
-        "\n".join([header, "## stdout", result.stdout, "## stderr", result.stderr, ""]),
-        encoding="utf-8",
-    )
+    body = "\n".join([header, "## stdout", result.stdout, "## stderr", result.stderr, ""])
+    path.write_text((redactor or Redactor()).text(body), encoding="utf-8")
     return path
 
 
@@ -1135,8 +1172,17 @@ def _criterion_indexes(
     return tuple(indexes)
 
 
-def _baseline_key(payload: Mapping[str, Any]) -> tuple[tuple[str, ...], bool]:
-    return tuple(payload["cmd"]), bool(payload["expect_fail_before"])
+def _baseline_key(payload: Mapping[str, Any]) -> tuple[str | None, bool]:
+    identity = payload.get("cmd_identity")
+    if not isinstance(identity, str):
+        command = payload.get("cmd")
+        if isinstance(command, (list, tuple)) and all(
+            isinstance(part, str) for part in command
+        ):
+            identity = approval_hash(command)
+        else:
+            identity = None
+    return identity, bool(payload.get("expect_fail_before"))
 
 
 def _valid_criterion_index(payload: Mapping[str, Any], task: Task) -> bool:
@@ -1149,7 +1195,7 @@ def _valid_criterion_index(payload: Mapping[str, Any], task: Task) -> bool:
         return False
     criterion = task.acceptance[index]
     return _baseline_key(payload) == (
-        tuple(criterion.cmd),
+        approval_hash(criterion.cmd),
         criterion.expect_fail_before,
     )
 
@@ -1165,8 +1211,7 @@ def _left(limit: float | None, spent: float) -> float | None:
 
 def _debt_id(cmd: Sequence[str]) -> str:
     """같은 커맨드는 같은 debt 다. 그래야 나중에 green 이 됐을 때 원장에서 닫힌다."""
-    digest = hashlib.sha256(" ".join(cmd).encode("utf-8")).hexdigest()
-    return f"D-{digest[:8]}"
+    return f"D-{approval_hash(cmd).split(':', 1)[1][:8]}"
 
 
 def _usage(result: AgentResult) -> Mapping[str, Any] | None:

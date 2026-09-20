@@ -1,6 +1,7 @@
 """Opt-in real CLI test; normal pytest runs remain offline.
 
-Run with --codex-binary codex (or an absolute native executable path).
+Run with --codex-binary codex (or an absolute native executable path). The
+model and reasoning effort default to gpt-5.6-luna and max.
 The test creates its own Git repository and never changes the developer's branch.
 """
 
@@ -29,6 +30,8 @@ def test_codex_edits_worktree_reads_agents_and_writes_outbox(request, repo):
     binary = request.config.getoption("--codex-binary")
     if not binary:
         pytest.skip("real Codex test requires --codex-binary and an authenticated CLI")
+    model = request.config.getoption("--codex-model")
+    reasoning_effort = request.config.getoption("--codex-reasoning-effort")
 
     # pytest's private temp directories use mode 0700. On Windows/Python 3.13+
     # that ACL prevents the native Codex sandbox account from using the cwd and
@@ -59,7 +62,11 @@ def test_codex_edits_worktree_reads_agents_and_writes_outbox(request, repo):
         "defaults": {"adapter": "codex", "profile": "worktree", "max_parallel": 1},
         "adapters": {"codex": {
             "type": "codex_cli", "binary": binary,
-            "extra_args": ["--sandbox", "workspace-write", "--ephemeral"],
+            "extra_args": [
+                "--sandbox", "workspace-write", "--ephemeral",
+                "--model", model,
+                "-c", f"model_reasoning_effort={reasoning_effort}",
+            ],
         }},
         "agent_timeout_s": 180,
         "max_attempts": 1,
@@ -109,4 +116,7 @@ def test_codex_edits_worktree_reads_agents_and_writes_outbox(request, repo):
     event_types = {event.type for event in store.journal.read()}
     assert EventType.CLAIM_RECEIVED in event_types
     assert EventType.HANDOFF_RECEIVED in event_types
-    print(f"Codex smoke verified; evidence: {store.run_dir}")
+    print(
+        f"Codex smoke verified; model={model}; reasoning_effort={reasoning_effort}; "
+        f"evidence: {store.run_dir}"
+    )

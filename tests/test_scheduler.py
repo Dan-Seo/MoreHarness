@@ -81,6 +81,18 @@ class Meets(ParallelAdapter):
         self.barrier.wait()
 
 
+class SelectedMeets(Meets):
+    """선택한 task 만 barrier 에 참여시켜 뒤의 queued task 를 막지 않는다."""
+
+    def __init__(self, files, selected):
+        super().__init__(files, parties=len(selected))
+        self.selected = frozenset(selected)
+
+    def enter(self, request):
+        if request.task_id in self.selected:
+            super().enter(request)
+
+
 class Lingers(ParallelAdapter):
     """겹치는 실행이 있으면 peak 에 드러나도록 잠깐 머무른다."""
 
@@ -220,11 +232,11 @@ def test_max_parallel_caps_concurrency(repo):
     for number, letter in ((1, "a"), (2, "b"), (3, "c")):
         write_task(repo, f"T-00{number}", allowed_paths=[f"src/{letter}/**"])
         files[f"T-00{number}"] = f"src/{letter}/f.py"
-    adapter = Lingers(files)
+    adapter = SelectedMeets(files, selected={"T-001", "T-002"})
 
     store = go(repo, adapter)
 
-    assert adapter.peak == 2  # 셋 다 분리돼 있어도 상한은 2 다
+    assert adapter.peak == 2  # two tasks must actually overlap.
     assert set(states(store).values()) == {State.DONE}
 
 

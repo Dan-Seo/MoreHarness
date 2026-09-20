@@ -49,16 +49,17 @@ The adapter `preflight`'s `kind` follows this boundary exactly. See 04.
 3. update state.json
 ```
 
-This order is immutable. No matter where it dies, there is no loss.
+This order is immutable. A committed event is never lost; an unfinished tail may be discarded.
 
 | Point of death | Result |
 |---|---|
 | Before 1 | The same as if nothing had happened |
-| Between 1 and 2 | The partially written last line is discarded on parse failure. That event becomes as if it never happened |
+| Between 1 and 2 | A non-newline-terminated tail is incomplete and is ignored on read. Before the next append, it is truncated back to the preceding newline and fsynced; that event becomes as if it never happened |
 | Between 2 and 3 | The journal is ahead. On resume, replaying everything after `last_applied_seq` restores it |
 | After 3 | Normal |
 
-- If the journal's last line is broken, **only that line is discarded.** The preceding events are valid.
+- `Journal.read` considers only newline-terminated bytes complete, so a torn UTF-8 tail is discarded without being decoded. Before append, the writer repairs that tail; complete preceding events are left byte-for-byte unchanged.
+- A malformed newline-terminated line is not a torn tail: read and append raise a journal-corruption error, so `doctor` can report it rather than silently rewriting an immutable event.
 - If `state.json` itself is damaged it is reconstructed by folding the whole journal. state is a cache and can be thrown away at any time.
 
 ---

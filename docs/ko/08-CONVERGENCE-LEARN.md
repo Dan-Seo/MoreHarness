@@ -116,16 +116,17 @@ R-###  →  task  →  verdict  →  evidence
 ### 그 밖의 검사
 
 - **드리프트** — task의 `spec_hash`와 현재 spec의 해시가 다르다. 구현 중에 스펙이 바뀌었다는 뜻이다.
-- **고아 diff** — verified task의 `allowed_paths`로 설명되지 않는 변경이 통합 브랜치에 있다. `allowed_paths`를 선언하지 않은 task는 제한이 없으므로 모든 변경을 설명한다 (05).
+- **고아 diff** — verified task의 `allowed_paths`로 설명되지 않는 변경이 통합 브랜치에 있다. `git diff --no-renames -z`를 사용하므로 rename의 양 끝 경로를 모두 검사하고 특수 문자가 있는 경로도 보존한다. `allowed_paths`를 선언하지 않은 task는 제한이 없으므로 모든 변경을 설명한다 (05).
 - **전체 AC 합집합 실행** — 통합 브랜치를 하네스 소유 임시 워크트리로 꺼내, 모든 task의 AC와 config의 `health_commands`를 실행한다. Command Policy를 통과한다. red가 open debt에 해당하면 원장 항목으로 보고하고, **그 밖의 red는 실패다.**
 - **open_debts** — 원장을 보고에 싣는다. **debt는 converge의 실패 조건이 아니라 ship의 조건이다.** 차등 판정이 task를 면제한 것을 converge가 다시 벌하면 두 층위의 분리가 무너진다.
+- **신선도** — converge는 검증 전에 통합 tip, 현재 사용자 `HEAD`, specs/tasks fingerprint, 유효한 `Config` 값과 원본 config 바이트, 승인 파일 바이트, safe workspace 내용 맵, task/debt 의미 projection을 기록한다. `ok` 보고서를 쓰기 전에 다시 확인하고 ship이 저장된 stamp와 비교한다. 생성되는 control-plane 출력(`runs/`, `knowledge/` 포함)과 `waivers.yaml`은 safe workspace stamp에서 제외하며 journal seq만으로 신선도를 판단하지 않는다.
 
 converge가 실패하는 조건 — uncovered/unverified/partial이 있다 · 드리프트가 있다 · 고아 diff가 있다 · debt에 해당하지 않는 red가 있다.
 
 ### 산출
 
 - `.harness/coverage.md` — 사람용 커버리지 매트릭스
-- `.harness/converge.json` — `{ok, run_id, integration, coverage, ...}`. ship이 이것을 읽는다.
+- `.harness/converge.json` — `{ok, run_id, integration, head, fingerprint, config_fingerprint, approvals_fingerprint, workspace_fingerprint, projection_fingerprint, coverage, ...}`. ship이 이것을 읽고 저장된 입력이 하나라도 다르면 fail closed 한다.
 
 ### 08이 소유하는 config 키
 
@@ -157,7 +158,7 @@ baseline 에서 pre-existing 실패 발견
 
 ## Ship 게이트 — canonical
 
-`harness ship`이 통과를 허용하는 조건은 넷이다. **전부 만족해야 한다.**
+`harness ship`이 통과를 허용하는 의미 조건은 넷이다. **전부 만족해야 하며 converge 보고서도 여전히 신선해야 한다.**
 
 ```
 1. 모든 R-### 가 covered
@@ -182,8 +183,7 @@ waiver 없이 깨진 상태로 ship되는 경로는 없다.
 ### ship의 절차
 
 ```
-1. converge.json 이 이 run 의 **현재** 통합 tip 에 대한 것이고 ok 인지 확인한다.
-   아니면 "converge 를 먼저 실행하라" 로 실패한다.
+1. converge.json 이 이 run의 **현재** 통합 tip과 사용자 `HEAD`에 대한 것이고 ok이며, 현재 specs/tasks, 유효/원본 config, 승인 파일, safe workspace, task/debt projection과 일치하는지 확인한다. 아니면 "converge 를 먼저 실행하라" 로 실패한다.
 2. open_debts 에서 waiver 로 면제된 것을 빼고 남으면 실패한다.
 3. 통과하면 통합 브랜치를 사용자의 현재 브랜치로 머지한다. run 동안 사용자
    브랜치는 움직이지 않았으므로 (05) 보통 fast-forward 다. 충돌하면 중단하고

@@ -15,6 +15,7 @@ health 커맨드, verifier, eval fixture — 예외는 없다. 그래서 실행 
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import subprocess
 from dataclasses import dataclass
@@ -49,8 +50,11 @@ def normalize(cmd: Sequence[str]) -> str:
 
 
 def approval_hash(cmd: Sequence[str]) -> str:
-    """승인의 키. 인자가 하나라도 바뀌면 다른 해시가 된다."""
-    return "sha256:" + hashlib.sha256(normalize(cmd).encode("utf-8")).hexdigest()
+    """승인의 키. argv 경계를 보존하는 compact JSON의 UTF-8 해시다."""
+    if isinstance(cmd, str):
+        raise TypeError("cmd 는 argv 리스트여야 한다 (docs/03)")
+    serialized = json.dumps(list(cmd), ensure_ascii=False, separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -117,7 +121,10 @@ class CommandPolicy:
     ) -> None:
         self.default = default
         self.rules = tuple(rules)
-        self._by_hash = {a.hash: a for a in approvals}
+        self._by_hash: dict[str, tuple[Approval, ...]] = {}
+        for approval in approvals:
+            self._by_hash.setdefault(approval.hash, ())
+            self._by_hash[approval.hash] += (approval,)
         self._compiled = tuple((re.compile(r.match), r) for r in self.rules)
 
     @classmethod
@@ -150,7 +157,15 @@ class CommandPolicy:
 
         approver = None
         if verdict is PolicyVerdict.REQUIRE_APPROVAL:
-            approval = self._by_hash.get(approval_hash(cmd))
+            requested = tuple(cmd)
+            approval = next(
+                (
+                    candidate
+                    for candidate in self._by_hash.get(approval_hash(requested), ())
+                    if candidate.cmd == requested
+                ),
+                None,
+            )
             approver = approval.approver if approval else None
 
         return Decision(cmd=tuple(cmd), verdict=verdict, rule=rule, approver=approver)

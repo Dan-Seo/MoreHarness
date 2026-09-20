@@ -8,7 +8,7 @@ import json
 
 import pytest
 import yaml
-from test_runner import ScriptedAdapter, commit, configure, task_of, write_task
+from test_runner import ScriptedAdapter, commit, configure, out, task_of, write_task
 
 from harness.adapters import registry
 from harness.adapters.base import AgentResult, Capabilities, PreflightKind, PreflightReport
@@ -18,8 +18,10 @@ from harness.errors import ConfigError
 from harness.events import EventType
 from harness.exec.review import ReviewStage
 from harness.exec.runner import run_dag
+from harness.exec.workspace import integration_branch
 from harness.models import RiskLevel, State, Verdict
 from harness.risk import assess, load_rules
+from harness.redact import Redactor
 
 CLEAN = {"schema": "harness.findings/v1", "task_id": "T-001", "findings": []}
 
@@ -227,6 +229,42 @@ def test_the_fixers_change_faces_the_same_evidence(repo):
     projection = task_of(store, "T-001")
     assert projection.verdict is Verdict.REJECTED
     assert projection.reason == "path_violation"
+
+
+def test_a_reviewer_workspace_mutation_is_rejected_before_integration(repo):
+    """docs/06 — reviewer 호출 전후 content 가 달라지면 통합하지 않는다."""
+    config = configure(repo, profile="worktree", max_attempts=1)
+    write_task(repo, "T-001", risk="low", allowed_paths=["src/**"])
+    adapter = ScriptedAdapter(
+        [
+            {"files": {"src/plain.py": "x = 1\n"}},
+            {"files": {"src/plain.py": "x = 2\n"}, "findings": CLEAN},
+        ]
+    )
+
+    store = go(repo, config, adapter)
+
+    task = task_of(store, "T-001")
+    assert task.verdict is Verdict.REJECTED
+    assert task.reason == "review_workspace_mutated"
+    assert out(repo, "show", f"{integration_branch('run-1')}:src/plain.py") == ""
+
+
+def test_promoted_review_findings_are_masked_and_remain_valid(repo):
+    secret = "TOPSECRET-ABC"
+    config = configure(repo, profile="worktree", secret_patterns=[r"TOPSECRET-[A-Z]+"])
+    write_task(repo, "T-001", risk="low", allowed_paths=["src/**"])
+    findings = finding(severity="low")
+    findings["findings"][0]["message"] = secret
+    adapter = ScriptedAdapter(
+        [{"files": {"src/plain.py": "x = 1\n"}}, {"files": {}, "findings": findings}]
+    )
+
+    store = go(repo, config, adapter)
+
+    promoted = store.run_dir / "tasks" / "T-001" / "review" / "wave-1" / "spec.json"
+    assert promoted.is_file()
+    assert secret not in promoted.read_text(encoding="utf-8")
 
 
 def test_review_artifacts_are_preserved(repo):

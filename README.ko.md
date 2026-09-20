@@ -170,14 +170,16 @@ canonical 문서를 먼저 고치고 테스트를 먼저 쓴다.
 쓴다. 이 테스트는 모델 사용량을 소비한다.
 
 ```bash
-python -m pytest tests/test_codex_live.py -q -s --codex-binary codex
+python -m pytest tests/test_codex_live.py -q -s --codex-binary codex --codex-model gpt-5.6-luna --codex-reasoning-effort max
 ```
 
 PowerShell에서는 네이티브 실행 파일 경로를 직접 지정할 수 있다.
 
 ```powershell
-python -m pytest tests/test_codex_live.py -q -s --codex-binary 'C:/path/to/codex.exe'
+python -m pytest tests/test_codex_live.py -q -s --codex-binary 'C:/path/to/codex.exe' --codex-model gpt-5.6-luna --codex-reasoning-effort max
 ```
+
+실시간 테스트 옵션의 기본값은 `gpt-5.6-luna`과 `max`이며 service tier는 지정하지 않는다.
 
 테스트는 임시 Git 저장소를 만들고 Codex가 그 저장소의 `AGENTS.md`를 따르는지,
 허용된 파일만 수정하는지, 외부 outbox에 유효한 claim과 handoff를 쓰는지 확인한다.

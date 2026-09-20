@@ -29,6 +29,7 @@ from harness.exec.workspace import integration_branch
 from harness.git import git
 from harness.models import RunState, Verdict
 from harness.policy import CommandPolicy, load_approvals
+from harness.redact import Redactor
 from harness.store import Store
 
 REGRESSION_ARM = "harness-full"
@@ -323,7 +324,8 @@ def _run_raw(repo: Path, config: Config, run_id: str, scratch: Path) -> Store:
     측정 이벤트만 journal 에 남긴다."""
     run_dir = repo / HARNESS_DIR / "runs" / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
-    store = Store(run_dir)
+    redactor = Redactor(config.secret_patterns)
+    store = Store(run_dir, redactor=redactor.payload)
     store.append(
         EventType.RUN_STARTED,
         {
@@ -344,7 +346,7 @@ def _run_raw(repo: Path, config: Config, run_id: str, scratch: Path) -> Store:
     )
     request = AgentRequest(
         task_id="RAW",
-        prompt=_spec_text(repo),
+        prompt=redactor.text(_spec_text(repo)),
         workspace=repo,
         outbox=outbox,
         profile=config.default_profile,
@@ -368,7 +370,11 @@ def _run_raw(repo: Path, config: Config, run_id: str, scratch: Path) -> Store:
             "duration_s": result.duration_s,
             "transcript_ref": str(
                 write_transcript(
-                    store.run_dir / "tasks" / "RAW", "attempt-1", adapter.name, result
+                    store.run_dir / "tasks" / "RAW",
+                    "attempt-1",
+                    adapter.name,
+                    result,
+                    redactor=redactor,
                 )
             ),
             "usage": None

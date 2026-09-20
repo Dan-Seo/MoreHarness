@@ -4,6 +4,8 @@
 정규식 매칭은 보안 경계가 아니라 잘못된 planner 와 저장소 인젝션에 대한 가드레일이다.
 """
 
+import hashlib
+import json
 import re
 import sys
 
@@ -119,7 +121,18 @@ def test_shell_promotion_never_weakens_a_deny():
 # --------------------------------------------------------------------------- 승인
 
 
-def test_an_approval_is_keyed_by_the_hash_of_the_normalized_string():
+def test_approval_hash_serializes_argv_boundaries_as_compact_json():
+    lhs = ["tool", "a b"]
+    rhs = ["tool", "a", "b"]
+    expected = "sha256:" + hashlib.sha256(
+        json.dumps(lhs, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+    assert approval_hash(lhs) == expected
+    assert approval_hash(lhs) != approval_hash(rhs)
+
+
+def test_an_approval_is_keyed_by_the_hash_of_the_exact_argv():
     cmd = ["npm", "install"]
     approvals = [{"cmd": cmd, "hash": approval_hash(cmd), "approver": "me", "scope": "project"}]
     decision = doc_policy(approvals).decide(cmd)
@@ -133,6 +146,33 @@ def test_changing_one_argument_invalidates_the_approval():
     cmd = ["npm", "install"]
     approvals = [{"cmd": cmd, "hash": approval_hash(cmd), "approver": "me"}]
     decision = doc_policy(approvals).decide(["npm", "install", "--force"])
+    assert decision.approver is None
+    assert not decision.may_execute
+
+
+def test_an_approval_with_a_mismatched_stored_cmd_fails_closed():
+    cmd = ["npm", "install"]
+    approvals = [
+        {
+            "cmd": ["npm", "install", "--wrong"],
+            "hash": approval_hash(cmd),
+            "approver": "me",
+        }
+    ]
+
+    decision = doc_policy(approvals).decide(cmd)
+
+    assert decision.approver is None
+    assert not decision.may_execute
+
+
+def test_a_legacy_space_joined_approval_hash_fails_closed():
+    cmd = ["npm", "install"]
+    legacy = "sha256:" + hashlib.sha256(normalize(cmd).encode("utf-8")).hexdigest()
+    approvals = [{"cmd": cmd, "hash": legacy, "approver": "me"}]
+
+    decision = doc_policy(approvals).decide(cmd)
+
     assert decision.approver is None
     assert not decision.may_execute
 

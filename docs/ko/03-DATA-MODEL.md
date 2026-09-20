@@ -316,6 +316,12 @@ state.json      fold(journal) 의 스냅샷              <- 파생 캐시
 필드 `criterion_index`도 기록한다. 이전 journal에 이 필드가 없으면 `cmd`와
 `expect_fail_before`의 occurrence 순서로 복원한다.
 
+`cmd`가 있는 이벤트는 비밀값 마스킹(09) 전에 원본 argv의 승인 해시(06)를
+`cmd_identity`로 함께 보존한다. 재개와 부채 비교에는 마스킹한 표시용 명령 대신
+이 식별자를 쓰며, 식별자가 없는 이전 이벤트는 원래 `cmd`를 쓴다.
+부채 projection도 `cmd_identity`가 있으면 보존한다. 실행에는 현재 task의 원본
+argv를 사용하며 마스킹한 journal 문자열을 실행하지 않는다.
+
 `tdd_phase_completed`의 `phase`는 `test_author | red_gate | implementation`이고 `base`는 그
 단계의 diff 관측 기준(커밋 sha)이다. 단계가 실제로 끝난 뒤 기록하며 `ok: true`만 재개
 증거로 쓴다. **state를 바꾸지 않는 증거 이벤트다.** green gate를 위한 이벤트는 따로 두지

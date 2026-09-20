@@ -55,9 +55,12 @@ This is not a complete defense. There is no guarantee that an LLM keeps the comp
 
 - **env allowlist** — only the variables explicitly named in `AgentRequest.env` are passed to the child process. The whole environment is not inherited.
 - **The `env_var` precondition checks only for presence.** It neither reads nor records the value. There is no path by which a value enters the `precondition_checked` event.
-- **masking** — known secret patterns are masked before being written to the prompt, the transcript, and the journal.
-- **outbox scrub** — the same masking is applied before an outbox artifact is promoted into `.harness/`.
-- Secret patterns are extensible through config.
+- **masking boundary** — `Redactor` masks prompt text before it is sent to an adapter or persisted as `prompt.md`, adapter stdout/stderr before the transcript is written, and event payloads before the journal append/fsync and state projection.
+- **promoted outbox scrub** — handoff, claim, and review artifacts are parsed and masked before valid or invalid reports are promoted into `.harness/`; parsed schema-invalid JSON is re-serialized through the same data redactor.
+- The built-in scope covers PEM private-key blocks, bearer/basic credentials, common API-token shapes, credential-looking assignments, credential-bearing URLs, and non-empty values of environment variables whose names have semantic secret suffixes such as `*_SECRET`, `*_TOKEN`, `*_PASSWORD`, `*_API_KEY`, or `*_PRIVATE_KEY`. `MAX_TOKENS` is not such a suffix.
+- Projects may add `secret_patterns`, a list of regular expressions. Patterns are compiled during config loading and an invalid pattern rejects the configuration.
+- Command payloads retain a trusted `cmd_identity` computed from the raw argv with `policy.approval_hash` before the displayed `cmd` is masked. This preserves replay matching without treating the redacted command as execution identity; in-memory command execution and approval still use the raw argv.
+- This is a harness-owned persistence boundary. Raw agent-owned outbox files are not rewritten, and the recognizers/patterns do not promise to find every secret or external log.
 
 ---
 
