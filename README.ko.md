@@ -154,6 +154,9 @@ harness eval run --fixtures evals/capability --arms raw,harness-full --repeat 3
 
 설계 문서 13개가 `docs/`에 있고 한 개념의 canonical 정의는 정확히 한 문서에만 있다.
 [`docs/00-OVERVIEW.md`](docs/ko/00-OVERVIEW.md)의 문서 지도에서 시작한다.
+이 프레임워크가 누구를 위한 것인지, fork한 사람이 첫 실행 전에 무엇을 하는지,
+무엇이 fork할 값어치를 만드는지는 [`docs/13-PRD.md`](docs/ko/13-PRD.md)에 있다.
+그 문서만은 설계 계약이 아니라 제품 요구사항이다.
 
 ## 개발
 

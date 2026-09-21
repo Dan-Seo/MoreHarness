@@ -96,7 +96,8 @@ A concept's **canonical definition is in exactly one document**. Other documents
 | `09-SECURITY.md` | Trust boundary · threat model · non-guarantees | The threat model |
 | `10-FAILURE-RECOVERY.md` | Failure handling · crash · resume | **The failure classification table** |
 | `11-EVALUATION.md` | Regression / capability eval | **Metric definitions** |
-| `12-ROADMAP.md` | M0–M8 | Milestone scope |
+| `12-ROADMAP.md` | M0–M9 | Milestone scope |
+| `13-PRD.md` | Product requirement, not a design contract | **Target users, the adoption path, product acceptance criteria** |
 
 ## Constraints
 

@@ -155,6 +155,8 @@ harness eval run --fixtures evals/capability --arms raw,harness-full --repeat 3
 
 The 13 design documents are in `docs/`, and the canonical definition of any one concept lives in exactly
 one document. Start from the document map in [`docs/00-OVERVIEW.md`](docs/00-OVERVIEW.md).
+Who the framework is for, what a fork does before its first run, and what makes it worth forking
+are in [`docs/13-PRD.md`](docs/13-PRD.md); that one is a product requirement, not a design contract.
 Korean translations of every document live in [`docs/ko/`](docs/ko), and of this page in [`README.ko.md`](README.ko.md).
 
 ## Development

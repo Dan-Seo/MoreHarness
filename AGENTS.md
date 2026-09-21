@@ -55,6 +55,11 @@ definition instead of repeating it in another design document.
 | Threat model and non-guarantees | `docs/09-SECURITY.md` |
 | Failure classification and recovery | `docs/10-FAILURE-RECOVERY.md` |
 | Evaluation and metrics | `docs/11-EVALUATION.md` |
+| Target users, adoption path and product acceptance | `docs/13-PRD.md` |
+
+The last row is a product requirement rather than a behavior contract, so it needs
+no contract test of its own. When it and a design document disagree, the design
+document wins.
 
 1. Identify the relevant contract before changing behavior. If it changes,
    update its document first and remove the superseded wording. Keep revision
