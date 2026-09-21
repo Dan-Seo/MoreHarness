@@ -6,10 +6,15 @@
   is the Harness Framework itself and everything below applies as written.
 - If that block is gone and the sections are filled in, **the repository is that
   project** and the harness is the infrastructure it ships with. Build what
-  `PRD.md` describes. Do not assume a request is about the framework.
+  `PRD.md` describes, with the stack and commands in
+  [`project/CONVENTIONS.md`](project/CONVENTIONS.md) and the layout in
+  [`project/ARCHITECTURE.md`](project/ARCHITECTURE.md). Do not assume a request
+  is about the framework.
 
 Either way, a change under `harness/`, `docs/` or `tests/` is a change to
-framework code, and every rule below still binds it.
+framework code, and every rule below still binds it. The setup and verification
+steps below are the framework's own toolchain. A fork's project builds and tests
+with the commands in `project/CONVENTIONS.md` instead.
 
 These instructions apply to the whole repository and to every coding agent.
 Start with `README.md` and the document map in `docs/00-OVERVIEW.md`.

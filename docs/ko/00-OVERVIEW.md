@@ -64,7 +64,7 @@ Intent → Spec → Plan → Task DAG → Analyze (사전 게이트)
 ## CLI 지도
 
 ```
-harness init                  저장소에 .harness/ 생성
+harness init [--skeleton]     .harness/ 생성, 프로젝트 뼈대는 최초 부트스트랩에만
 harness spec <intent>         Intent → Spec (R-### 부여)
 harness clarify               [NEEDS CLARIFICATION] 해소
 harness plan                  Spec → Plan

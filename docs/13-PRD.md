@@ -90,7 +90,8 @@ Each step below carries its own check.
 | # | Step | What it changes | Check |
 |---|---|---|---|
 | 1 | Install from a clone | nothing in the target project | `harness --help` runs |
-| 2 | `harness init` in the target repository | creates `.harness/` | `harness doctor` reports no findings |
+| 2 | `harness init` in the target repository | creates `.harness/` and the project skeleton | `harness doctor` reports no findings |
+| 2b | Fill in `PRD.md` and `project/` | project documents | the template blocks are gone |
 | 3 | Write the project's rules into `.harness/constitution.md` | control plane | the rules reach every task prompt, untruncated |
 | 4 | Replace the `mock` adapter slot with a real vendor | `.harness/config.yaml` | `harness doctor` runs adapter preflight |
 | 5 | Read `command_policy` and adjust it to the project | `.harness/config.yaml` | the default is fail-closed, so nothing new runs unattended until it is listed |

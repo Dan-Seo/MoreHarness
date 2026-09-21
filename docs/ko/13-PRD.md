@@ -90,7 +90,8 @@ fork는 두 가지 모양 중 하나로 도착하고, 그 차이가 프로젝트
 | # | 단계 | 무엇이 바뀌나 | 확인 |
 |---|---|---|---|
 | 1 | 클론에서 설치 | 대상 프로젝트에는 아무 변화 없음 | `harness --help`가 실행된다 |
-| 2 | 대상 저장소에서 `harness init` | `.harness/` 생성 | `harness doctor`가 지적 없이 통과한다 |
+| 2 | 대상 저장소에서 `harness init` | `.harness/` 와 프로젝트 뼈대 생성 | `harness doctor`가 지적 없이 통과한다 |
+| 2b | `PRD.md` 와 `project/` 를 채운다 | 프로젝트 문서 | 템플릿 블록이 사라진다 |
 | 3 | `.harness/constitution.md`에 프로젝트 규칙을 쓴다 | control plane | 규칙이 잘리지 않고 모든 task 프롬프트에 들어간다 |
 | 4 | `mock` 어댑터 슬롯을 실제 벤더로 교체 | `.harness/config.yaml` | `harness doctor`가 어댑터 preflight를 돌린다 |
 | 5 | `command_policy`를 읽고 프로젝트에 맞게 고친다 | `.harness/config.yaml` | 기본값이 fail-closed이므로, 목록에 없는 것은 무인 실행되지 않는다 |

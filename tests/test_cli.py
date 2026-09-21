@@ -7,6 +7,7 @@ import json
 import os
 import pkgutil
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -15,7 +16,7 @@ import pytest
 import yaml
 
 import harness
-from harness.cli import REQUIRED_CONTROL_PLANE, main
+from harness.cli import PROJECT_SKELETON, REQUIRED_CONTROL_PLANE, main
 from harness.exec.workspace import repo_scratch
 from harness.config import load
 from harness.events import EventType
@@ -187,6 +188,64 @@ def test_doctor_passes_on_a_freshly_initialized_repo(plain_repo, capsys):
     """M0 완료 기준 (docs/12) — init 이 만든 저장소에서 doctor 가 지적 없이 통과한다."""
     main(["init", "--repo", str(plain_repo)])
     capsys.readouterr()
+    assert main(["doctor", "--repo", str(plain_repo)]) == 0
+    assert "[bad]" not in capsys.readouterr().out
+
+
+def test_init_writes_the_project_skeleton(plain_repo):
+    """docs/03 — init 이 프로젝트 문서를 패키지 템플릿에서 써 넣는다."""
+    main(["init", "--repo", str(plain_repo)])
+
+    for rel in PROJECT_SKELETON:
+        path = plain_repo / rel
+        assert path.is_file(), rel
+        assert "UNFILLED TEMPLATE" in path.read_text(encoding="utf-8"), rel
+
+
+def test_init_does_not_overwrite_an_existing_project_document(plain_repo):
+    """docs/03 — 이미 채운 PRD 는 init 을 다시 돌려도 그대로다."""
+    prd = plain_repo / "PRD.md"
+    prd.write_text("# PRD — 내 프로젝트\n", encoding="utf-8")
+
+    assert main(["init", "--repo", str(plain_repo)]) == 0
+    assert prd.read_text(encoding="utf-8") == "# PRD — 내 프로젝트\n"
+
+
+def test_init_does_not_restore_a_deleted_project_document(plain_repo):
+    """docs/03 — 뼈대는 최초 부트스트랩에서만 쓴다. 지운 것을 되살리지 않는다."""
+    main(["init", "--repo", str(plain_repo)])
+    (plain_repo / "PRD.md").unlink()
+
+    assert main(["init", "--repo", str(plain_repo)]) == 0
+    assert not (plain_repo / "PRD.md").exists()
+
+
+def test_init_skeleton_flag_writes_the_documents_again(plain_repo):
+    """docs/03 — 이미 부트스트랩된 저장소도 --skeleton 으로 뼈대를 받는다."""
+    main(["init", "--repo", str(plain_repo)])
+    (plain_repo / "PRD.md").unlink()
+
+    assert main(["init", "--repo", str(plain_repo), "--skeleton"]) == 0
+    assert (plain_repo / "PRD.md").is_file()
+
+
+def test_init_skeleton_flag_does_not_overwrite_a_filled_in_document(plain_repo):
+    """docs/03 — --skeleton 도 사람이 채운 것은 덮지 않는다."""
+    main(["init", "--repo", str(plain_repo)])
+    prd = plain_repo / "PRD.md"
+    prd.write_text("# PRD — 내 프로젝트\n", encoding="utf-8")
+
+    assert main(["init", "--repo", str(plain_repo), "--skeleton"]) == 0
+    assert prd.read_text(encoding="utf-8") == "# PRD — 내 프로젝트\n"
+
+
+def test_doctor_does_not_require_the_project_skeleton(plain_repo, capsys):
+    """docs/03 — 프로젝트 문서는 control-plane 이 아니다. 지워도 doctor 는 통과한다."""
+    main(["init", "--repo", str(plain_repo)])
+    (plain_repo / "PRD.md").unlink()
+    shutil.rmtree(plain_repo / "project")
+    capsys.readouterr()
+
     assert main(["doctor", "--repo", str(plain_repo)]) == 0
     assert "[bad]" not in capsys.readouterr().out
 

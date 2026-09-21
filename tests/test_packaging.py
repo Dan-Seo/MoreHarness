@@ -18,6 +18,7 @@ import pytest
 import harness
 import harness.schemas
 import harness.spec
+from harness.cli import PROJECT_SKELETON, TEMPLATE_DIR
 
 PACKAGE_DIR = Path(harness.__file__).resolve().parent
 REPO_ROOT = PACKAGE_DIR.parent
@@ -65,6 +66,18 @@ def test_runtime_resources_live_inside_the_package():
     for directory in (harness.schemas.SCHEMA_DIR, harness.spec.TEMPLATE_DIR):
         assert directory.is_dir(), f"{directory} 가 없다"
         assert PACKAGE_DIR in directory.parents, f"{directory} 가 패키지 밖이다"
+
+
+def test_the_repository_skeleton_matches_the_packaged_templates():
+    """docs/03 — 루트의 프로젝트 문서와 init 이 쓰는 템플릿은 같은 내용이다.
+
+    둘이 갈라지면 저장소를 복사한 사람과 `harness init` 을 돌린 사람이 서로 다른
+    뼈대를 받는다.
+    """
+    for relative, template in PROJECT_SKELETON.items():
+        shipped = (REPO_ROOT / relative).read_text(encoding="utf-8")
+        packaged = (TEMPLATE_DIR / template).read_text(encoding="utf-8")
+        assert shipped == packaged, relative
 
 
 def test_the_package_and_the_project_declare_the_same_version():

@@ -45,7 +45,7 @@ pip install .
 
 ```bash
 cd <your-repo>            # git 저장소여야 한다
-harness init              # .harness/ 생성 (멱등)
+harness init              # .harness/ 생성, 프로젝트 뼈대는 최초 실행에만
 harness spec "사용자 이름을 slug 로 바꾸는 함수"   # R-### 이 붙은 Spec 골격
 harness plan              # Spec → Plan
 harness tasks             # Plan → tasks/*.task.yaml (DAG)
@@ -159,6 +159,9 @@ harness eval run --fixtures evals/capability --arms raw,harness-full --repeat 3
 그 문서만은 설계 계약이 아니라 제품 요구사항이다.
 이 저장소를 fork해서 **다른 것**을 만든다면 그 내용은 루트의 [`PRD.md`](PRD.md)에 적는다.
 코딩 에이전트에게 이 저장소가 프레임워크가 아니라 당신의 프로젝트임을 알리는 파일이 그것이다.
+뼈대의 나머지는 [`project/`](project)에 있다. 기술 스택과 실행 명령은
+[`CONVENTIONS.md`](project/CONVENTIONS.md), 구조와 결정 기록은
+[`ARCHITECTURE.md`](project/ARCHITECTURE.md)다. 셋 다 비어 있는 채로 배포되며 채우는 것은 당신 몫이다.
 
 ## 개발
 

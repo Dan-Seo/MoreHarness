@@ -62,7 +62,7 @@ A principle is not a declaration; it is enforced at a specific point in the code
 ## CLI map
 
 ```
-harness init                  Create .harness/ in the repository
+harness init [--skeleton]     Create .harness/, and the project skeleton on first bootstrap
 harness spec <intent>         Intent → Spec (assign R-###)
 harness clarify               Resolve [NEEDS CLARIFICATION]
 harness plan                  Spec → Plan

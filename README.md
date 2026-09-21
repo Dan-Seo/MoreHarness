@@ -44,7 +44,7 @@ is the same.
 
 ```bash
 cd <your-repo>            # must be a git repository
-harness init              # create .harness/ (idempotent)
+harness init              # create .harness/, and the project skeleton on the first run
 harness spec "a function that turns a user name into a slug"   # a Spec skeleton tagged R-###
 harness plan              # Spec → Plan
 harness tasks             # Plan → tasks/*.task.yaml (DAG)
@@ -159,6 +159,9 @@ Who the framework is for, what a fork does before its first run, and what makes 
 are in [`docs/13-PRD.md`](docs/13-PRD.md); that one is a product requirement, not a design contract.
 If you forked this repository to build something else, describe it in [`PRD.md`](PRD.md) at the root.
 That file is what tells a coding agent the repository is your project rather than this framework.
+[`project/`](project) holds the rest of the skeleton: the stack and commands in
+[`CONVENTIONS.md`](project/CONVENTIONS.md), the layout and decisions in
+[`ARCHITECTURE.md`](project/ARCHITECTURE.md). All three ship unfilled and are yours to fill in.
 Korean translations of every document live in [`docs/ko/`](docs/ko), and of this page in [`README.ko.md`](README.ko.md).
 
 ## Development

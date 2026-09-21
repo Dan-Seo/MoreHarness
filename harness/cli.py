@@ -107,6 +107,18 @@ CONTROL_PLANE_FILES = {
     "approved_commands.yaml": DEFAULT_APPROVED_COMMANDS,
 }
 
+# harness.spec 도 같은 디렉토리를 본다. init 은 spec 파이프라인 없이도 돌아야 하므로
+# 그 모듈을 import 하지 않고 경로만 따로 둔다.
+TEMPLATE_DIR = Path(__file__).resolve().parent / "resources" / "templates"
+
+# docs/03 — 저장소 루트의 프로젝트 문서다. control-plane 이 아니므로 doctor 는 요구하지
+# 않고, 이미 있으면 덮지 않는다. {저장소 상대 경로: 패키지 템플릿 이름}
+PROJECT_SKELETON = {
+    "PRD.md": "PRD.md",
+    "project/CONVENTIONS.md": "CONVENTIONS.md",
+    "project/ARCHITECTURE.md": "ARCHITECTURE.md",
+}
+
 
 def main(argv: list[str] | None = None) -> int:
     # Windows pipes may use cp949 (or ASCII). Keep the caller's encoding, but
@@ -152,8 +164,13 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="harness", description="Agents propose. Harness verifies.")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    init = sub.add_parser("init", help="저장소에 .harness/ 를 만든다")
+    init = sub.add_parser("init", help="저장소에 .harness/ 와 프로젝트 뼈대를 만든다")
     init.add_argument("--repo", help="저장소 루트 (기본: 현재 위치의 저장소)")
+    init.add_argument(
+        "--skeleton",
+        action="store_true",
+        help="이미 부트스트랩된 저장소에도 프로젝트 문서를 다시 쓴다 (덮지는 않는다)",
+    )
 
     spec_cmd = sub.add_parser("spec", help="Intent → Spec 골격 (R-### 부여)")
     spec_cmd.add_argument("intent", help="한 문장 의도")
@@ -233,10 +250,14 @@ def _run_ids(repo: Path) -> list[str]:
 
 
 def _init(args: argparse.Namespace) -> int:
-    """docs/03 의 파일 배치대로 control-plane 을 만든다.
+    """docs/03 의 파일 배치대로 control-plane 과 프로젝트 문서를 만든다.
 
     이미 있는 것은 건드리지 않는다. `runs/` 는 저장소에 커밋되지 않으므로 clone 뒤
     다시 만들어야 하고, 그래서 이 커맨드는 몇 번을 실행해도 안전해야 한다.
+
+    `PROJECT_SKELETON` 은 control-plane 이 아니다 (docs/03). 사람이 채우는 문서이므로
+    **최초 부트스트랩에서만** 쓴다. 그래야 지운 사람이 매번 다시 지우지 않는다.
+    `--skeleton` 은 그 판단을 건너뛰고 다시 쓴다. 어느 쪽도 있는 파일은 덮지 않는다.
     """
     repo = _resolve_repo(args)
     if not is_repo(repo):
@@ -244,6 +265,10 @@ def _init(args: argparse.Namespace) -> int:
         return 1
 
     harness_dir = repo / HARNESS_DIR
+    # 뼈대는 부트스트랩의 일부지 복구의 일부가 아니다 (docs/03). 제어 평면을 만들기
+    # 전에 판단해야 이 실행이 최초인지 알 수 있다.
+    bootstrapped = (harness_dir / "config.yaml").exists()
+
     for name in CONTROL_PLANE_DIRS:
         path = harness_dir / name
         print(f"{'exists ' if path.is_dir() else 'created'}  {HARNESS_DIR}/{name}/")
@@ -256,6 +281,20 @@ def _init(args: argparse.Namespace) -> int:
             continue
         path.write_text(content, encoding="utf-8")
         print(f"created  {HARNESS_DIR}/{name}")
+
+    if bootstrapped and not args.skeleton:
+        print("skipped  프로젝트 문서 — 이미 부트스트랩됐다 (--skeleton 으로 다시 쓴다)")
+    else:
+        for relative, template in PROJECT_SKELETON.items():
+            path = repo / relative
+            if path.exists():
+                print(f"exists   {relative}")
+                continue
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                (TEMPLATE_DIR / template).read_text(encoding="utf-8"), encoding="utf-8"
+            )
+            print(f"created  {relative}")
 
     print(f"{HARNESS_DIR}/ 준비됨 — harness doctor 로 확인한다")
     return 0

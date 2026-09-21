@@ -357,6 +357,10 @@ argv를 사용하며 마스킹한 journal 문자열을 실행하지 않는다.
         verification.json
         review/wave-1/*.json
         transcript/<outbox 이름>.log   # dispatch 마다 하나 — agent 의 stdout/stderr
+  PRD.md                          # 이 저장소가 무엇을 만드는가
+  project/
+    CONVENTIONS.md                # 기술 스택, 빌드·테스트 명령, 코드 규칙
+    ARCHITECTURE.md               # 구조, 데이터 흐름, 결정 기록
   specs/<slug>/spec.yaml
   tasks/T-###.task.yaml
   evals/fixtures/<case>/
@@ -368,6 +372,14 @@ argv를 사용하며 마스킹한 journal 문자열을 실행하지 않는다.
     handoff.json
     attachments/
 ```
+
+`PRD.md`와 `project/`는 **control-plane이 아니라 프로젝트 문서다.** 이 저장소가 무엇을
+만드는지, 무엇으로 만드는지, 어떻게 배치되어 있는지를 말하며 코딩 에이전트가 무엇보다
+먼저 읽는다. `init`은 **최초 부트스트랩에서만** 패키지 템플릿에서 써 넣는다. 최초란
+`.harness/config.yaml`을 만드는 실행이다. 그 뒤의 `init`은 복구이므로 프로젝트 문서에
+손대지 않는다. 그래서 하나를 지우면 영구히 지워진다. `harness init --skeleton`이 다시
+써 넣으며, 어느 쪽도 이미 있는 파일은 덮지 않는다. `doctor`는 이것들을 요구하지 않는다.
+저장소가 자기를 다른 곳에 설명해도 되므로 없다는 것이 결함은 아니다.
 
 `<repo-key>`는 저장소 절대 경로에서 만든 키다. run-id는 시각에서 만들어지므로 저장소가 다르면 값이 같을 수 있고, 그 위에 워크트리가 만들어지면 서로의 작업을 덮는다.
 

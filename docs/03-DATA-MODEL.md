@@ -357,6 +357,10 @@ the `differential` of `ac_post_executed`.
         verification.json
         review/wave-1/*.json
         transcript/<outbox name>.log   # one per dispatch — the agent's stdout/stderr
+  PRD.md                          # what this repository builds
+  project/
+    CONVENTIONS.md                # stack, the commands to build and test with, code rules
+    ARCHITECTURE.md               # layout, data flow, decisions
   specs/<slug>/spec.yaml
   tasks/T-###.task.yaml
   evals/fixtures/<case>/
@@ -368,6 +372,15 @@ the `differential` of `ac_post_executed`.
     handoff.json
     attachments/
 ```
+
+`PRD.md` and `project/` are **project documents, not control-plane.** They say what the
+repository builds, what it is built with and how it is laid out, and a coding agent reads
+them before anything else. `init` writes them from packaged templates **on the first
+bootstrap only**, which is the run that creates `.harness/config.yaml`. A later `init` is a
+repair and leaves project documents alone, so deleting one is permanent. `harness init
+--skeleton` writes them again, and neither form ever overwrites a file that already exists.
+`doctor` does not require them: a repository is free to describe itself elsewhere, so their
+absence is not a fault.
 
 `<repo-key>` is a key made from the repository's absolute path. Because run-ids are derived from the clock, two different repositories can produce the same value, and if worktrees are made on top of it they overwrite each other's work.
 
