@@ -44,7 +44,7 @@ is the same.
 
 ```bash
 cd <your-repo>            # must be a git repository
-harness init              # create .harness/, and the project skeleton on the first run
+harness init              # create .harness/, and the project skeleton on the first bootstrap
 harness spec "a function that turns a user name into a slug"   # a Spec skeleton tagged R-###
 harness plan              # Spec → Plan
 harness tasks             # Plan → tasks/*.task.yaml (DAG)
@@ -153,7 +153,7 @@ harness eval run --fixtures evals/capability --arms raw,harness-full --repeat 3
 
 ## Documents
 
-The 13 design documents are in `docs/`, and the canonical definition of any one concept lives in exactly
+The design documents are in `docs/`, and the canonical definition of any one concept lives in exactly
 one document. Start from the document map in [`docs/00-OVERVIEW.md`](docs/00-OVERVIEW.md).
 Who the framework is for, what a fork does before its first run, and what makes it worth forking
 are in [`docs/13-PRD.md`](docs/13-PRD.md); that one is a product requirement, not a design contract.

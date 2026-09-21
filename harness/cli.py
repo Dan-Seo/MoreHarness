@@ -80,6 +80,9 @@ control-plane 문서이므로 항상 trusted 로 취급되고, 모든 task 프�
 ## 규칙
 
 - (프로젝트 규칙을 여기에 적는다)
+
+`PRD.md` 와 `project/CONVENTIONS.md` 는 이 경로에 없다. 거기 적은 CRITICAL 규칙 중
+task 프롬프트마다 필요한 것은 이 파일로 옮겨 적는다.
 """
 
 DEFAULT_APPROVED_COMMANDS = """\

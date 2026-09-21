@@ -79,11 +79,16 @@ A fork arrives in one of two shapes, and the difference decides where the projec
   reading the fork finds framework documents everywhere and mistakes the framework for
   the product.
 
-[`PRD.md`](../PRD.md) at the repository root settles that in both shapes. While it still
-carries its unfilled template block the repository is the framework; once it is filled in
-the repository is the project it describes, and `AGENTS.md` and `CLAUDE.md` send a coding
-agent there before anything else. **This document is the framework's own product
-requirement and is not a substitute for that file.**
+[`PRD.md`](../PRD.md) at the repository root settles which project a repository is. While
+it still carries its unfilled template block the repository is the framework; once it is
+filled in the repository is the project it describes. **This document is the framework's
+own product requirement and is not a substitute for that file.**
+
+`init` writes that file in both shapes; what points an agent at it does not. A fork carries
+[`AGENTS.md`](../AGENTS.md) and [`CLAUDE.md`](../CLAUDE.md), which branch on the template
+block and are read before anything else. A repository the harness was only pointed at has
+neither, so nothing there tells an agent the file is worth reading. Its owner adds that
+pointer to the instruction file their agent already reads.
 
 Each step below carries its own check.
 
@@ -92,6 +97,7 @@ Each step below carries its own check.
 | 1 | Install from a clone | nothing in the target project | `harness --help` runs |
 | 2 | `harness init` in the target repository | creates `.harness/` and the project skeleton | `harness doctor` reports no findings |
 | 2b | Fill in `PRD.md` and `project/` | project documents | the template blocks are gone |
+| 2c | Point your agent instructions at `PRD.md` — a fork already does | `AGENTS.md`, `CLAUDE.md` or whatever your agent reads | asked what the repository builds, an agent names the project |
 | 3 | Write the project's rules into `.harness/constitution.md` | control plane | the rules reach every task prompt, untruncated |
 | 4 | Replace the `mock` adapter slot with a real vendor | `.harness/config.yaml` | `harness doctor` runs adapter preflight |
 | 5 | Read `command_policy` and adjust it to the project | `.harness/config.yaml` | the default is fail-closed, so nothing new runs unattended until it is listed |

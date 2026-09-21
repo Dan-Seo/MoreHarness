@@ -45,7 +45,7 @@ pip install .
 
 ```bash
 cd <your-repo>            # git 저장소여야 한다
-harness init              # .harness/ 생성, 프로젝트 뼈대는 최초 실행에만
+harness init              # .harness/ 생성, 프로젝트 뼈대는 최초 부트스트랩에만
 harness spec "사용자 이름을 slug 로 바꾸는 함수"   # R-### 이 붙은 Spec 골격
 harness plan              # Spec → Plan
 harness tasks             # Plan → tasks/*.task.yaml (DAG)
@@ -152,7 +152,7 @@ harness eval run --fixtures evals/capability --arms raw,harness-full --repeat 3
 
 ## 문서
 
-설계 문서 13개가 `docs/`에 있고 한 개념의 canonical 정의는 정확히 한 문서에만 있다.
+설계 문서가 `docs/`에 있고 한 개념의 canonical 정의는 정확히 한 문서에만 있다.
 [`docs/00-OVERVIEW.md`](docs/ko/00-OVERVIEW.md)의 문서 지도에서 시작한다.
 이 프레임워크가 누구를 위한 것인지, fork한 사람이 첫 실행 전에 무엇을 하는지,
 무엇이 fork할 값어치를 만드는지는 [`docs/13-PRD.md`](docs/ko/13-PRD.md)에 있다.

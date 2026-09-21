@@ -41,6 +41,8 @@ Start with `README.md` and the document map in `docs/00-OVERVIEW.md`.
 
 ## Repository map
 
+- `PRD.md`: which project this repository is, per the top of this file.
+- `project/`: that project's stack, commands and layout — not the framework's.
 - `harness/adapters/`: subprocess protocol, vendor adapters and conformance.
 - `harness/exec/`: task execution, worktrees, TDD, verification and review.
 - `harness/context/`: selection, provenance and budgets.
