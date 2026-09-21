@@ -69,9 +69,23 @@ defined in [`11-EVALUATION.md`](11-EVALUATION.md).
 
 ## The adoption path
 
-Two repositories are in play: this one, which is installed once, and the target project,
-where every run happens. Confusing the two is the likeliest first mistake, so each step
-below carries its own check.
+A fork arrives in one of two shapes, and the difference decides where the project lives.
+
+- **Install, and point the harness at a project.** The harness stays a separate clone and
+  `harness init` runs inside the project's own repository. Two repositories are in play,
+  and confusing them is the likeliest first mistake.
+- **Fork this repository and build inside it.** The fork becomes the project and carries
+  the harness with it. One repository is in play, and the risk moves: a coding agent
+  reading the fork finds framework documents everywhere and mistakes the framework for
+  the product.
+
+[`PRD.md`](../PRD.md) at the repository root settles that in both shapes. While it still
+carries its unfilled template block the repository is the framework; once it is filled in
+the repository is the project it describes, and `AGENTS.md` and `CLAUDE.md` send a coding
+agent there before anything else. **This document is the framework's own product
+requirement and is not a substitute for that file.**
+
+Each step below carries its own check.
 
 | # | Step | What it changes | Check |
 |---|---|---|---|

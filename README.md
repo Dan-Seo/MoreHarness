@@ -157,6 +157,8 @@ The 13 design documents are in `docs/`, and the canonical definition of any one 
 one document. Start from the document map in [`docs/00-OVERVIEW.md`](docs/00-OVERVIEW.md).
 Who the framework is for, what a fork does before its first run, and what makes it worth forking
 are in [`docs/13-PRD.md`](docs/13-PRD.md); that one is a product requirement, not a design contract.
+If you forked this repository to build something else, describe it in [`PRD.md`](PRD.md) at the root.
+That file is what tells a coding agent the repository is your project rather than this framework.
 Korean translations of every document live in [`docs/ko/`](docs/ko), and of this page in [`README.ko.md`](README.ko.md).
 
 ## Development

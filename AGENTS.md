@@ -1,5 +1,16 @@
 # Working on Harness Framework
 
+**Read [`PRD.md`](PRD.md) first. It says which project this repository is.**
+
+- If `PRD.md` still carries its `STATUS: UNFILLED TEMPLATE` block, this repository
+  is the Harness Framework itself and everything below applies as written.
+- If that block is gone and the sections are filled in, **the repository is that
+  project** and the harness is the infrastructure it ships with. Build what
+  `PRD.md` describes. Do not assume a request is about the framework.
+
+Either way, a change under `harness/`, `docs/` or `tests/` is a change to
+framework code, and every rule below still binds it.
+
 These instructions apply to the whole repository and to every coding agent.
 Start with `README.md` and the document map in `docs/00-OVERVIEW.md`.
 

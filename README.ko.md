@@ -157,6 +157,8 @@ harness eval run --fixtures evals/capability --arms raw,harness-full --repeat 3
 이 프레임워크가 누구를 위한 것인지, fork한 사람이 첫 실행 전에 무엇을 하는지,
 무엇이 fork할 값어치를 만드는지는 [`docs/13-PRD.md`](docs/ko/13-PRD.md)에 있다.
 그 문서만은 설계 계약이 아니라 제품 요구사항이다.
+이 저장소를 fork해서 **다른 것**을 만든다면 그 내용은 루트의 [`PRD.md`](PRD.md)에 적는다.
+코딩 에이전트에게 이 저장소가 프레임워크가 아니라 당신의 프로젝트임을 알리는 파일이 그것이다.
 
 ## 개발
 

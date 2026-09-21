@@ -1,5 +1,9 @@
 # Harness Framework
 
+Read [PRD.md](PRD.md) first — it says which project this repository is. If it has
+been filled in, this repository is that project and the harness is its
+infrastructure, not the thing being built.
+
 Shared repository instructions are maintained in one place:
 
 @AGENTS.md
